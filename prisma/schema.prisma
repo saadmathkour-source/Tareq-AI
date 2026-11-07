@@ -1,0 +1,148 @@
+// VoiceProxy AI - Prisma schema
+// Datasource points at Supabase Postgres (pooled connection, see DATABASE_URL).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+/// Application user, mirrored from Supabase Auth (auth.users) by id.
+model User {
+  id               String   @id
+  email            String?  @unique
+  fullName         String?  @map("full_name")
+  role             Role     @default(USER)
+  stripeCustomerId String?  @unique @map("stripe_customer_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  voices       VoiceProfile[]
+  sessions     VoiceSession[]
+  subscription Subscription?
+  apiKeys      ApiKey[]
+
+  @@map("users")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+/// A reusable voice/cloning profile the user can route calls through.
+model VoiceProfile {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @map("user_id")
+  name            String
+  language        String   @default("en")
+  provider        String   @default("openai")
+  providerVoiceId String?  @map("provider_voice_id")
+  sampleUrl       String?  @map("sample_url")
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions VoiceSession[]
+
+  @@index([userId])
+  @@map("voice_profiles")
+}
+
+/// A single proxied voice interaction (call or realtime session).
+model VoiceSession {
+  id          String           @id @default(uuid()) @db.Uuid
+  userId      String           @map("user_id")
+  voiceId     String?          @map("voice_id") @db.Uuid
+  status      SessionStatus    @default(PENDING)
+  direction   SessionDirection @default(INBOUND)
+  transcript  Json?
+  durationSec Int              @default(0) @map("duration_sec")
+  costCents   Int              @default(0) @map("cost_cents")
+  startedAt   DateTime         @default(now()) @map("started_at")
+  endedAt     DateTime?        @map("ended_at")
+
+  user  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  voice VoiceProfile? @relation(fields: [voiceId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@map("voice_sessions")
+}
+
+enum SessionStatus {
+  PENDING
+  ACTIVE
+  COMPLETED
+  FAILED
+}
+
+enum SessionDirection {
+  INBOUND
+  OUTBOUND
+}
+
+/// Billing subscription linked to Stripe.
+model Subscription {
+  id                   String    @id @default(uuid()) @db.Uuid
+  userId               String    @unique @map("user_id")
+  stripeSubscriptionId String?   @unique @map("stripe_subscription_id")
+  stripePriceId        String?   @map("stripe_price_id")
+  plan                 Plan      @default(FREE)
+  status               SubStatus @default(INACTIVE)
+  currentPeriodEnd     DateTime? @map("current_period_end")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("subscriptions")
+}
+
+enum Plan {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum SubStatus {
+  ACTIVE
+  INACTIVE
+  PAST_DUE
+  CANCELED
+  TRIALING
+}
+
+/// API keys for programmatic access to the VoiceProxy API.
+model ApiKey {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id")
+  name       String    @default("default")
+  keyHash    String    @unique @map("key_hash")
+  lastUsedAt DateTime? @map("last_used_at")
+  revokedAt  DateTime? @map("revoked_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("api_keys")
+}
+
+/// Raw webhook/event log for auditing (Stripe, calls, AI).
+model EventLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  source    String
+  type      String
+  payload   Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([source])
+  @@index([type])
+  @@map("event_logs")
+}
