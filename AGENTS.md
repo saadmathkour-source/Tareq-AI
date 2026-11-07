@@ -51,8 +51,14 @@ Always run `npm run typecheck` and `npm run build` before pushing.
 autonomous commercial agent. It does not share VoiceProxy's `package.json`,
 build, database or processes.
 
-- Run its own tooling from inside `tareq/`: `npm install`, `npm test` (88 tests),
-  `npm run db:push`, `npm run bootstrap`, `npm run api`, `npm run worker`.
+- Run its own tooling from inside `tareq/`: `npm install`, `npm test` (98 tests),
+  `npm run db:push`, `npm run bootstrap`, `npm run api`, `npm run worker`,
+  `npm run acceptance` (commercial end-to-end, 16 checks).
+- Owner dashboard is served by the API at `/` (`tareq/src/app/dashboard.html`),
+  bilingual AR/EN, data from persisted tables only.
+- **Pitfall:** `/workspace/project/tareq` and `/workspace/project/Tareq-AI/tareq`
+  are two *different* directories. Only `Tareq-AI/tareq` is git-tracked. Edit the
+  tracked one (or sync with `tar`/`cp -r`); `rsync` is not installed here.
 - It uses a **separate Postgres schema (`tareq`)** via
   `DATABASE_URL`/`DIRECT_URL` in `tareq/.env`, so it can share the Supabase
   instance without touching VoiceProxy's `public` tables.
