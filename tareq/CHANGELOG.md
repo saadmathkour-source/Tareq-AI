@@ -33,6 +33,14 @@
   (136 tests total).
 
 ### Fixed
+- `src/lib/core/db.ts` — the owner dashboard fires ~13 parallel reads on load
+  (`Promise.all` in `dashboard.html`), but the Supabase connection string ships
+  `connection_limit=1`, so twelve queries queued on one connection and died with
+  "Timed out fetching a new connection from the connection pool". The API had
+  already authenticated, so the UI reported it as a **failed sign-in**. The pool
+  is now raised to a floor of 10 (never lowered) with a 20s pool timeout, so a
+  low configured limit can no longer deadlock the dashboard. Verified: 13/13
+  parallel queries succeed (was 9/13).
 - `src/app/server.ts` — the top-level catch block turned every thrown error into
   `500 internal error`, so a rejected login (wrong password or unknown email)
   looked like a server crash and returned 500 instead of 401. Errors are now
