@@ -95,9 +95,11 @@
         </select>
         <button id="modeApply" data-i18n="apply">Apply</button>
         <span class="spacer"></span>
-        <input id="planGoal" placeholder="Plan a goal…" style="max-width:320px" />
+        <input id="planGoal" placeholder="Type a command in English or Arabic…" style="max-width:360px" />
         <button id="planBtn" data-i18n="plan">Plan</button>
+        <button id="missionBtn" data-i18n="mission">Run mission</button>
       </div>
+      <p class="muted" id="planResult" style="font-size:12px;margin:8px 0 0"></p>
       <p class="muted" style="font-size:12px;margin:8px 0 0" data-i18n="modeHint">
         OBSERVE forbids all acting tools. Sensitive actions (spend, outreach, publish) always need approval, in every mode.
       </p>
@@ -128,8 +130,24 @@
     <h2 data-i18n="s.capabilities">Capabilities (100)</h2>
     <div class="card">
       <div class="row" id="capSummary" style="margin-bottom:10px"></div>
+      <div class="row" style="margin-bottom:10px">
+        <input id="capSearch" placeholder="Search capabilities…" style="max-width:240px" />
+        <select id="capFilter" style="width:auto">
+          <option value="ALL">All statuses</option>
+          <option value="VERIFIED_FUNCTIONAL">VERIFIED_FUNCTIONAL</option>
+          <option value="IMPLEMENTED_NOT_VERIFIED">IMPLEMENTED_NOT_VERIFIED</option>
+          <option value="PARTIAL">PARTIAL</option>
+          <option value="BLOCKED_EXTERNAL_DEPENDENCY">BLOCKED_EXTERNAL_DEPENDENCY</option>
+          <option value="NOT_IMPLEMENTED">NOT_IMPLEMENTED</option>
+        </select>
+      </div>
       <div id="caps"></div>
     </div>
+  </section>
+
+  <section>
+    <h2 data-i18n="s.integrations">Integrations</h2>
+    <div class="card"><div id="integrations"></div></div>
   </section>
 
   <section>
@@ -174,8 +192,8 @@ T.en = {
   'signin':'Sign in','loginHint':'Owner-only. No other account can issue commands.',
   's.executive':'Executive overview','s.control':'Control','s.approvals':'Approval center',
   's.tasks':'Task center','s.finance':'Revenue · expenses · profit','s.capabilities':'Capabilities (100)',
-  's.leads':'Leads & customers','s.research':'Research & opportunity reports','s.usage':'API usage & cost','s.errors':'Errors','s.config':'Agent configuration',
-  's.health':'System health · audit','lbl.mode':'Operating mode','apply':'Apply','plan':'Plan',
+  's.integrations':'Integrations','s.leads':'Leads & customers','s.research':'Research & opportunity reports','s.usage':'API usage & cost','s.errors':'Errors','s.config':'Agent configuration',
+  's.health':'System health · audit','lbl.mode':'Operating mode','apply':'Apply','plan':'Plan','mission':'Run mission',
   'modeHint':'OBSERVE forbids all acting tools. Sensitive actions (spend, outreach, publish) always need approval, in every mode.',
   'lbl.budget':'Budget','lbl.mode2':'Mode','lbl.tasks':'Tasks','lbl.approvals':'Pending approvals',
   'lbl.caps':'Capabilities implemented','lbl.chain':'Audit chain','lbl.revenue':'Collected revenue',
@@ -193,8 +211,8 @@ T.ar = {
   'signin':'دخول','loginHint':'للمالك فقط. لا يمكن لأي حساب آخر إصدار أوامر.',
   's.executive':'النظرة التنفيذية','s.control':'التحكم','s.approvals':'مركز الموافقات',
   's.tasks':'مركز المهام','s.finance':'الإيرادات · المصروفات · الربح','s.capabilities':'القدرات (100)',
-  's.leads':'العملاء المحتملون والعملاء','s.research':'تقارير البحث والفرص','s.usage':'استخدام واجهات الذكاء الاصطناعي والتكلفة','s.errors':'الأخطاء','s.config':'إعداد الوكيل',
-  's.health':'صحة النظام · التدقيق','lbl.mode':'وضع التشغيل','apply':'تطبيق','plan':'تخطيط',
+  's.integrations':'التكاملات','s.leads':'العملاء المحتملون والعملاء','s.research':'تقارير البحث والفرص','s.usage':'استخدام واجهات الذكاء الاصطناعي والتكلفة','s.errors':'الأخطاء','s.config':'إعداد الوكيل',
+  's.health':'صحة النظام · التدقيق','lbl.mode':'وضع التشغيل','apply':'تطبيق','plan':'تخطيط','mission':'تشغيل مهمة',
   'modeHint':'وضع OBSERVE يمنع كل أدوات التنفيذ. الإجراءات الحساسة (الدفع، التواصل، النشر) تتطلب موافقة دائمًا وفي كل الأوضاع.',
   'lbl.budget':'الميزانية','lbl.mode2':'الوضع','lbl.tasks':'المهام','lbl.approvals':'موافقات معلّقة',
   'lbl.caps':'قدرات مُنفّذة','lbl.chain':'سلسلة التدقيق','lbl.revenue':'الإيراد المُحصّل',
@@ -209,13 +227,36 @@ T.ar = {
 };
 let lang = localStorage.getItem('tareq.lang') || 'en';
 let token = sessionStorage.getItem('tareq.token') || '';
+let CAPS = [];
+let capQuery = '';
+let capFilter = 'ALL';
 const t = (k) => (T[lang] && T[lang][k]) || k;
+
+const capStatusClass = (s) =>
+  s === 'VERIFIED_FUNCTIONAL' ? 'ok'
+  : s === 'IMPLEMENTED_NOT_VERIFIED' ? 'info'
+  : s === 'PARTIAL' ? 'warn'
+  : s === 'BLOCKED_EXTERNAL_DEPENDENCY' ? 'warn' : 'bad';
+
+function renderCaps() {
+  const q = capQuery.toLowerCase();
+  const items = CAPS.filter((c) =>
+    (capFilter === 'ALL' || c.status === capFilter) &&
+    (q === '' || String(c.n).includes(q) || (c.name || '').toLowerCase().includes(q) || (c.description || '').toLowerCase().includes(q)));
+  document.getElementById('caps').innerHTML = items.length === 0 ? '<p class="muted">' + t('empty') + '</p>' :
+    '<table><thead><tr><th>#</th><th>Capability</th><th>Status</th><th>Code</th><th>Evidence</th></tr></thead><tbody>' +
+    items.map((c) => '<tr><td>' + c.n + '</td><td>' + esc(c.name) + '<div class="muted" style="font-size:11px">' + esc(c.description || '') + '</div></td><td>' +
+      pill((c.status || '').replace(/_/g, ' '), capStatusClass(c.status)) +
+      '</td><td class="muted" style="font-size:11px">' + esc(c.code || '') +
+      '</td><td class="muted" style="font-size:11px">' + esc((c.evidence || []).join('; ')) + '</td></tr>').join('') + '</tbody></table>';
+}
 
 function applyLang() {
   document.documentElement.lang = lang;
   document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
   document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
-  document.getElementById('planGoal').placeholder = lang === 'ar' ? 'خطّط هدفًا…' : 'Plan a goal…';
+  document.getElementById('planGoal').placeholder = lang === 'ar' ? 'اكتب أمرًا بالعربية أو الإنجليزية…' : 'Type a command in English or Arabic…';
+  document.getElementById('capSearch').placeholder = lang === 'ar' ? 'ابحث في القدرات…' : 'Search capabilities…';
 }
 
 async function api(path, opts = {}) {
@@ -238,10 +279,10 @@ function card(label, value, sub) {
 }
 
 async function refresh() {
-  const [h, mode, caps, tasks, approvals, fin, audit, leads, usage, errors, config, research] = await Promise.all([
+  const [h, mode, caps, tasks, approvals, fin, audit, leads, usage, errors, config, research, integ] = await Promise.all([
     api('/health?deep=1'), api('/mode'), api('/capabilities'),
     api('/tasks'), api('/approvals'), api('/finance'), api('/audit'),
-    api('/leads'), api('/usage'), api('/errors'), api('/config'), api('/research'),
+    api('/leads'), api('/usage'), api('/errors'), api('/config'), api('/research'), api('/integrations'),
   ]);
 
   // health dot
@@ -250,7 +291,8 @@ async function refresh() {
   document.getElementById('modePill').textContent = mode.mode;
 
   const capSum = caps.summary || {};
-  const impl = (capSum.implemented || 0) + '/' + (caps.items || []).length;
+  const impl = (capSum.VERIFIED_FUNCTIONAL || 0) + '/' + (caps.items || []).length;
+  CAPS = caps.items || [];
   const pending = (approvals.approvals || []).filter((a) => a.status === 'PENDING').length;
   const chainOk = audit.chain && audit.chain.ok;
 
@@ -305,12 +347,21 @@ async function refresh() {
 
   // capabilities
   document.getElementById('capSummary').innerHTML = Object.entries(capSum)
-    .map(([k, v]) => pill(k + ': ' + v, k === 'implemented' ? 'ok' : k === 'partial' ? 'warn' : 'info')).join('');
-  document.getElementById('caps').innerHTML =
-    '<table><thead><tr><th>#</th><th>Capability</th><th>Status</th><th>Code</th></tr></thead><tbody>' +
-    (caps.items || []).map((c) => '<tr><td>' + c.n + '</td><td>' + esc(c.name) + '</td><td>' +
-      pill(c.status, c.status === 'implemented' ? 'ok' : c.status === 'partial' ? 'warn' : 'info') +
-      '</td><td class="muted">' + esc(c.code || '') + '</td></tr>').join('') + '</tbody></table>';
+    .map(([k, v]) => pill(k.replace(/_/g, ' ') + ': ' + v, capStatusClass(k))).join('');
+  renderCaps();
+
+  // integrations — honest configured/unconfigured status, never a false "connected"
+  const intg = integ || {};
+  const intRow = (name, ok, detail) =>
+    '<tr><td>' + esc(name) + '</td><td>' + pill(ok ? 'configured' : 'not configured', ok ? 'ok' : 'warn') +
+    '</td><td class="muted">' + esc(detail || '') + '</td></tr>';
+  document.getElementById('integrations').innerHTML =
+    '<table><thead><tr><th>Service</th><th>Status</th><th>Detail</th></tr></thead><tbody>' +
+    intRow('Gmail (send)', intg.gmail && intg.gmail.configured, intg.gmail && intg.gmail.configured ? intg.gmail.sender : 'missing: ' + ((intg.gmail && intg.gmail.missing) || []).join(', ')) +
+    intRow('HubSpot (CRM)', intg.hubspot && intg.hubspot.configured, intg.hubspot && intg.hubspot.configured ? 'token present' : 'missing: ' + ((intg.hubspot && intg.hubspot.missing) || []).join(', ')) +
+    intRow('Stripe (payments)', intg.stripe && intg.stripe.configured, intg.stripe ? 'mode: ' + intg.stripe.mode + ', webhook: ' + (intg.stripe.webhookConfigured ? 'yes' : 'no') : '') +
+    intRow('Telegram (bot)', intg.telegram && intg.telegram.configured, intg.telegram && intg.telegram.configured ? 'owner id set' : 'not configured') +
+    '</tbody></table>';
 
   // health
   document.getElementById('health').innerHTML = Object.entries(h.checks || {})
@@ -423,9 +474,38 @@ document.getElementById('modeApply').onclick = async () => {
 document.getElementById('planBtn').onclick = async () => {
   const goal = document.getElementById('planGoal').value.trim();
   if (!goal) return;
-  try { await api('/plan', { method: 'POST', body: JSON.stringify({ goal }) }); document.getElementById('planGoal').value = ''; await refresh(); }
-  catch (e) { alert(e.message); }
+  const out = document.getElementById('planResult');
+  try {
+    const r = await api('/plan', { method: 'POST', body: JSON.stringify({ goal }) });
+    out.textContent = 'Planned as "' + r.intent.template + '" (topic: ' + (r.intent.topic || '—') +
+      ', method: ' + r.intent.method + ', confidence ' + r.intent.confidence.toFixed(2) + '). ' +
+      Object.keys(r.tasks).length + ' tasks queued.';
+    document.getElementById('planGoal').value = '';
+    await refresh();
+  } catch (e) { out.textContent = 'Error: ' + e.message; }
 };
+
+document.getElementById('missionBtn').onclick = async () => {
+  const topic = document.getElementById('planGoal').value.trim();
+  if (!topic) return;
+  const out = document.getElementById('planResult');
+  const btn = document.getElementById('missionBtn');
+  btn.disabled = true;
+  out.textContent = 'Running bounded mission for "' + topic + '"… (live research + buyer discovery)';
+  try {
+    const r = await api('/mission', { method: 'POST', body: JSON.stringify({ topic }) });
+    const rep = r.report;
+    out.textContent = 'Mission complete: reached ' + rep.reachedStage +
+      ' · evidence ' + rep.evidence.length +
+      ' · buyers ' + rep.buyers.candidates +
+      ' · offer $' + rep.offer.priceUsd + ' — ' + rep.stoppedAt;
+    await refresh();
+  } catch (e) { out.textContent = 'Error: ' + e.message; }
+  finally { btn.disabled = false; }
+};
+
+document.getElementById('capSearch').oninput = (ev) => { capQuery = ev.target.value; renderCaps(); };
+document.getElementById('capFilter').onchange = (ev) => { capFilter = ev.target.value; renderCaps(); };
 
 document.getElementById('stopBtn').onclick = async () => {
   if (!confirm(t('confirmStop'))) return;

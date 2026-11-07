@@ -23,6 +23,20 @@ const serverSchema = z.object({
 
   TELEGRAM_BOT_TOKEN: z.string().optional(),
   TELEGRAM_OWNER_ID: z.string().optional(),
+
+  // Gmail (owner OAuth) — all three required to send.
+  GMAIL_CLIENT_ID: z.string().optional(),
+  GMAIL_CLIENT_SECRET: z.string().optional(),
+  GMAIL_REFRESH_TOKEN: z.string().optional(),
+  GMAIL_SENDER: z.string().email().optional(),
+
+  // HubSpot private-app token.
+  HUBSPOT_PRIVATE_APP_TOKEN: z.string().optional(),
+
+  // Stripe (test or live key).
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_PUBLISHABLE_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverSchema>;

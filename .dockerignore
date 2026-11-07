@@ -1,0 +1,10 @@
+# Keep the Docker build context small and deterministic.
+.git
+node_modules
+tareq/node_modules
+tareq/dist
+.next
+*.tsbuildinfo
+.env
+.env.*
+!.env.example

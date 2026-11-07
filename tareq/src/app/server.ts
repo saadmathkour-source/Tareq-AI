@@ -22,7 +22,11 @@ import { snapshot as budgetSnapshot } from '../lib/security/budget.ts';
 import { prisma } from '../lib/core/db.ts';
 import { verifyChain } from '../lib/core/audit.ts';
 import { audit } from '../lib/core/audit.ts';
-import { plan } from '../lib/planner/index.ts';
+import { plan, planFromCommand } from '../lib/planner/index.ts';
+import { runMission } from '../lib/commercial/mission.ts';
+import { status as gmailStatus } from '../lib/integrations/gmail.ts';
+import { status as hubspotStatus } from '../lib/integrations/hubspot.ts';
+import { status as stripeStatus, handleWebhook } from '../lib/integrations/stripe.ts';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -113,6 +117,15 @@ route('POST', '/mode', true, async (_req, res, owner, body) => {
 
 route('GET', '/capabilities', true, async (_req, res) => {
   json(res, 200, capabilityTable());
+});
+
+route('GET', '/integrations', true, async (_req, res) => {
+  json(res, 200, {
+    gmail: gmailStatus(),
+    hubspot: hubspotStatus(),
+    stripe: stripeStatus(),
+    telegram: { configured: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_OWNER_ID) },
+  });
 });
 
 route('GET', '/tasks', true, async (_req, res) => {
@@ -257,9 +270,22 @@ route('POST', '/emergency-stop', true, async (_req, res, owner) => {
 route('POST', '/plan', true, async (_req, res, _owner, body) => {
   const goal = String(body['goal'] ?? '');
   const opportunityId = body['opportunityId'] ? String(body['opportunityId']) : undefined;
+  if (!goal.trim()) return json(res, 400, { error: 'goal is required' });
   try {
-    const ids = await plan(goal, opportunityId);
-    json(res, 200, { ok: true, tasks: ids });
+    const { parentId, tasks, intent } = await planFromCommand(goal, opportunityId);
+    json(res, 200, { ok: true, parentId, tasks, intent });
+  } catch (err) {
+    json(res, 400, { error: (err as Error).message });
+  }
+});
+
+route('POST', '/mission', true, async (_req, res, owner, body) => {
+  const topic = String(body['topic'] ?? body['goal'] ?? '').trim();
+  if (!topic) return json(res, 400, { error: 'topic is required' });
+  try {
+    await audit({ actorType: 'owner', actorId: owner?.id, action: 'mission.start', target: topic, severity: 'warn' });
+    const report = await runMission(topic, { maxBuyers: Number(body['maxBuyers'] ?? 20) || 20 });
+    json(res, 200, { ok: true, report });
   } catch (err) {
     json(res, 400, { error: (err as Error).message });
   }
@@ -275,6 +301,17 @@ const server = createServer(async (req, res) => {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(html) });
       res.end(html);
       return;
+    }
+
+    // Stripe webhook: public endpoint, raw body, signature-verified.
+    // Money is recorded only here, and only after the signature checks out.
+    if (req.method === 'POST' && url.pathname === '/webhooks/stripe') {
+      const chunks: Buffer[] = [];
+      for await (const c of req) chunks.push(c as Buffer);
+      const raw = Buffer.concat(chunks).toString('utf8');
+      const sig = String(req.headers['stripe-signature'] ?? '');
+      const result = await handleWebhook(raw, sig);
+      return json(res, result.handled ? 200 : 400, result);
     }
 
     const match = routes.find((r) => r.method === req.method && r.path === url.pathname);

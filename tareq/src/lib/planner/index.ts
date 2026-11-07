@@ -1,5 +1,6 @@
 import { prisma } from '../core/db.ts';
 import { enqueue, type Priority } from '../queue/tasks.ts';
+import { interpret, type IntentMatch } from './intent.ts';
 
 /**
  * Planner.
@@ -57,6 +58,10 @@ export function templateFor(goal: string): Plan | null {
   return { goal, steps };
 }
 
+export function knownTemplates(): string[] {
+  return Object.keys(TEMPLATES);
+}
+
 /** Enqueue a plan's steps, wiring dependencies between them. Returns task ids by key. */
 export async function execute(
   plan: Plan,
@@ -92,6 +97,42 @@ export async function plan(goal: string, opportunityId?: string): Promise<Record
     opportunityId,
   });
   return execute(t, { parentId, opportunityId });
+}
+
+/**
+ * Interpret a free-text goal (Arabic or English), persist it as a parent task and
+ * enqueue its steps. The interpreted template, topic and rationale are stored on
+ * the parent so the owner can see exactly how their words were understood.
+ */
+export async function planFromCommand(
+  goal: string,
+  opportunityId?: string,
+): Promise<{ parentId: string; tasks: Record<string, string>; intent: IntentMatch }> {
+  const intent = interpret(goal, knownTemplates());
+  const t = templateFor(intent.template);
+  if (!t) throw new Error(`No plan template for goal: ${intent.template}`);
+
+  // Thread the extracted topic into research/lead steps so the plan is about the
+  // subject the owner actually named, not a generic run.
+  const steps = t.steps.map((s) => {
+    const wantsTopic = [
+      'commercial.market_research',
+      'commercial.demand_scan',
+      'sales.buyer_discovery',
+      'sales.lead_discovery',
+    ].includes(s.kind);
+    if (!wantsTopic || !intent.topic) return s;
+    return { ...s, payload: { ...(s.payload ?? {}), topic: intent.topic } };
+  });
+
+  const parentId = await enqueue({
+    kind: 'plan',
+    payload: { goal, intent, topic: intent.topic },
+    priority: 'HIGH',
+    opportunityId,
+  });
+  const tasks = await execute({ goal: intent.template, steps }, { parentId, opportunityId });
+  return { parentId, tasks, intent };
 }
 
 export { prisma };

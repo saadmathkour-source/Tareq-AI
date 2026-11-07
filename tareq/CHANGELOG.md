@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased — Autonomous Agent Activation & Complete Owner Command Center (2026-11-07)
+
+### Added
+- `src/lib/planner/intent.ts` — natural-language command interpreter. The owner
+  can now type a goal in Arabic or English ("Research profitable problems in the
+  US software market", "ابحث عن مشاكل مربحة في سوق البرمجيات") and it is routed to
+  a plan template by deterministic keyword matching, with a topic extracted and
+  threaded into research/lead steps. `/plan` no longer rejects free text.
+- `src/lib/commercial/mission.ts` + `POST /mission` + `commercial.mission` worker
+  handler — a real, bounded autonomous mission: DISCOVER → RESEARCH (live public
+  sources) → EVIDENCE_COLLECTION → DEMAND_VALIDATION → BUYER_DISCOVERY →
+  IDENTIFICATION → ECONOMIC_ANALYSIS → RISK_REVIEW → OFFER_DESIGN → PROTOTYPE →
+  QUALITY_VERIFICATION. It stops before any owner-gated step (approval, outreach,
+  conversion, payment) and never fabricates a number. Verified live: 20 HN
+  signals → 3 evidence records → 15 buyers → offer priced → all gates passed.
+- `src/lib/integrations/gmail.ts`, `hubspot.ts`, `stripe.ts` — real adapters that
+  report honest configured/unconfigured status and refuse to act without
+  credentials. Stripe includes signature-verified, idempotent webhook handling
+  (`POST /webhooks/stripe`) that records revenue only after the HMAC checks out.
+- `GET /integrations` and a dashboard Integrations panel.
+- Capability index upgraded to the five-value status vocabulary with
+  description, dependencies and evidence per group; `/capabilities` summary and
+  the dashboard gained status filtering and search.
+- `tests/intent.test.ts`, `tests/integrations.test.ts`,
+  `tests/capability-index.test.ts` (132 tests total, was 107).
+
+### Fixed
+- `src/lib/core/audit.ts` — the hash-chained audit log hashed `metadata` with a
+  raw `JSON.stringify`, but `metadata` is a Postgres `jsonb` column that does not
+  preserve key order. Any entry with two or more metadata keys produced a hash
+  that no longer matched on read-back, silently breaking the chain. Now uses a
+  key-sorted canonical form; added `repairChain()` to re-derive existing rows.
+
 ## Unreleased — Targeted Production Readiness & Real-World Capability Audit (2026-11-07)
 
 Ran a real-world capability audit (tasks 1-9) against the live database,
