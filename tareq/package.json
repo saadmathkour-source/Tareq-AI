@@ -1,0 +1,37 @@
+{
+  "name": "tareq",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TAREQ - an independent, owner-controlled autonomous commercial agent. Plans, executes, verifies and learns within explicit permissions.",
+  "type": "module",
+  "engines": {
+    "node": ">=20.9.0"
+  },
+  "scripts": {
+    "db:push": "prisma db push",
+    "db:generate": "prisma generate",
+    "db:format": "prisma format",
+    "typecheck": "tsc --noEmit",
+    "build": "prisma generate && tsc -p tsconfig.build.json",
+    "test": "node --test --experimental-strip-types tests/*.test.ts",
+    "worker": "node --experimental-strip-types worker/main.ts",
+    "api": "node --experimental-strip-types src/app/server.ts",
+    "seed:owner": "node --experimental-strip-types scripts/seed-owner.ts",
+    "bootstrap": "node --experimental-strip-types scripts/bootstrap.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "6.19.3",
+    "openai": "7.53.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "prisma": "6.19.3",
+    "typescript": "5.9.3"
+  },
+  "allowScripts": {
+    "prisma@6.19.3": true,
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true
+  }
+}

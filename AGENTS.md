@@ -44,3 +44,20 @@ Always run `npm run typecheck` and `npm run build` before pushing.
 - `prisma/schema.prisma` — `User`, `VoiceProfile`, `VoiceSession`,
   `Subscription`, `ApiKey`, `EventLog`.
 - `GET /api/health` — liveness + DB/env probe; use it to verify deploys.
+
+## TAREQ subproject (`tareq/`)
+
+`tareq/` is a **separate, self-contained project** — an owner-controlled
+autonomous commercial agent. It does not share VoiceProxy's `package.json`,
+build, database or processes.
+
+- Run its own tooling from inside `tareq/`: `npm install`, `npm test` (88 tests),
+  `npm run db:push`, `npm run bootstrap`, `npm run api`, `npm run worker`.
+- It uses a **separate Postgres schema (`tareq`)** via
+  `DATABASE_URL`/`DIRECT_URL` in `tareq/.env`, so it can share the Supabase
+  instance without touching VoiceProxy's `public` tables.
+- Read `tareq/README.md` before changing it. Governance (permissions, budget,
+  stage gates, audit chain, evidence vault) is enforced in code, not by
+  convention — keep it that way.
+- Note: this repo's injected `GITHUB_TOKEN` is currently **read-only** (git push
+  and the write APIs return `403`), so pushes need a token with `Contents: write`.

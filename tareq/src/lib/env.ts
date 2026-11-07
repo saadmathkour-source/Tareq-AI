@@ -1,0 +1,52 @@
+import { z } from 'zod';
+
+/**
+ * Environment access. Validation is lazy so importing this module never throws
+ * during build/test; call `env()` where a value is actually needed.
+ *
+ * TAREQ is independent: it never reads VoiceProxy AI's database or servers.
+ */
+const serverSchema = z.object({
+  DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
+  DIRECT_URL: z.string().min(1).optional(),
+
+  TAREQ_OWNER_EMAIL: z.string().email().optional(),
+  TAREQ_OWNER_PASSWORD: z.string().min(1).optional(),
+  TAREQ_SESSION_SECRET: z.string().min(16, 'TAREQ_SESSION_SECRET must be >= 16 chars').optional(),
+
+  OPENAI_API_KEY: z.string().min(1).optional(),
+  DEEPSEEK_API_KEY: z.string().min(1).optional(),
+  TAREQ_DEFAULT_PROVIDER: z.enum(['openai', 'deepseek']).default('openai'),
+
+  TAREQ_BUDGET_CAP_USD: z.coerce.number().positive().default(20),
+  TAREQ_BUDGET_WARN_USD: z.coerce.number().positive().default(15),
+
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_OWNER_ID: z.string().optional(),
+});
+
+export type ServerEnv = z.infer<typeof serverSchema>;
+
+let cached: ServerEnv | null = null;
+
+export function env(): ServerEnv {
+  if (cached) return cached;
+  const parsed = serverSchema.safeParse(process.env);
+  if (!parsed.success) {
+    const issues = parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ');
+    throw new Error(`Invalid environment: ${issues}`);
+  }
+  cached = parsed.data;
+  return cached;
+}
+
+/** True when the given secret name is present and non-empty. Never returns the value. */
+export function hasSecret(name: keyof NodeJS.ProcessEnv | string): boolean {
+  const v = process.env[name as string];
+  return typeof v === 'string' && v.length > 0;
+}
+
+/** Presence map for a set of names — safe to expose in health output. */
+export function secretPresence(names: string[]): Record<string, boolean> {
+  return Object.fromEntries(names.map((n) => [n, hasSecret(n)]));
+}

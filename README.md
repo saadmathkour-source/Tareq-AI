@@ -79,3 +79,13 @@ See [`prisma/schema.prisma`](./prisma/schema.prisma).
 4. Railway injects `PORT`; `next start` binds to it automatically.
 
 Expose the health check at `/api/health` for Railway monitoring.
+
+## TAREQ (independent autonomous agent)
+
+The repository also contains **TAREQ**, an independent, owner-controlled
+autonomous commercial agent. It is a self-contained project under
+[`tareq/`](./tareq) with its own runtime, its own Postgres schema (`tareq`) and
+its own Railway service. It does not read VoiceProxy AI's database or servers.
+
+See [`tareq/README.md`](./tareq/README.md) for the architecture, the governance
+mechanisms, and how to run and deploy it.
