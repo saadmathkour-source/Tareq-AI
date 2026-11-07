@@ -3,6 +3,13 @@
 ## Unreleased — Autonomous Agent Activation & Complete Owner Command Center (2026-11-07)
 
 ### Added
+- Owner-auth bypass (`TAREQ_AUTH_BYPASS=1`, default off) — a temporary
+  lockout-recovery switch. When enabled it drops the dashboard sign-in screen
+  and treats every owner-only route as owned, so a broken login can never lock
+  the owner out of the command center. It is logged loudly at startup and the
+  dashboard shell is marked `data-auth-bypass="1"`. It removes the last barrier
+  between a public URL and owner powers (spend, outreach, publish), so it must
+  be unset again as soon as access is restored.
 - `src/lib/planner/intent.ts` — natural-language command interpreter. The owner
   can now type a goal in Arabic or English ("Research profitable problems in the
   US software market", "ابحث عن مشاكل مربحة في سوق البرمجيات") and it is routed to
