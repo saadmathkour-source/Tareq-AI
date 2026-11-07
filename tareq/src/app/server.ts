@@ -34,6 +34,26 @@ import { dirname, join } from 'node:path';
 const PORT = Number(process.env.PORT ?? 3300);
 
 /**
+ * Emergency owner-auth bypass.
+ *
+ * Set `TAREQ_AUTH_BYPASS=1` to drop the sign-in screen and treat every
+ * owner-only route as already owned. It exists ONLY as a temporary lockout
+ * recovery switch: it removes the last barrier between a public URL and owner
+ * powers (spending, outreach, publishing), so it is logged loudly at startup
+ * and MUST be switched off as soon as access is restored. Default: off.
+ */
+function authBypass(): boolean {
+  return process.env.TAREQ_AUTH_BYPASS === '1';
+}
+
+const BYPASS_OWNER: OwnerIdentity = {
+  id: 'auth-bypass',
+  email: process.env.TAREQ_OWNER_EMAIL ?? 'owner',
+  displayName: 'Auth bypass (owner lockout recovery)',
+  locale: 'ar',
+};
+
+/**
  * The dashboard is a single static HTML file served by this same server, so the
  * owner UI has no separate build step and no second deployment. It is public
  * HTML (no data), and every datum it shows comes from an authenticated API call.
@@ -333,7 +353,8 @@ const server = createServer(async (req, res) => {
 
     // Owner dashboard (static shell; data comes from authenticated API calls).
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/dashboard')) {
-      const html = dashboard();
+      let html = dashboard();
+      if (authBypass()) html = html.replace('<body>', '<body data-auth-bypass="1">');
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(html) });
       res.end(html);
       return;
@@ -355,10 +376,14 @@ const server = createServer(async (req, res) => {
 
     let owner: OwnerIdentity | null = null;
     if (match.auth) {
-      try {
-        owner = await authenticate(bearer(req));
-      } catch {
-        return json(res, 401, { error: 'unauthorized' });
+      if (authBypass()) {
+        owner = BYPASS_OWNER;
+      } else {
+        try {
+          owner = await authenticate(bearer(req));
+        } catch {
+          return json(res, 401, { error: 'unauthorized' });
+        }
       }
     }
     const body = req.method === 'POST' ? await readBody(req) : {};
@@ -374,7 +399,10 @@ const server = createServer(async (req, res) => {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   env();
-  server.listen(PORT, () => logger.info('tareq api listening', { port: PORT }));
+  if (authBypass()) {
+    logger.warn('OWNER AUTH BYPASS ENABLED (TAREQ_AUTH_BYPASS=1): every owner-only route is open. Switch it off once access is restored.');
+  }
+  server.listen(PORT, () => logger.info('tareq api listening', { port: PORT, authBypass: authBypass() }));
 }
 
 export { server, routes };
