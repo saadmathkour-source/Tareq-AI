@@ -22,6 +22,7 @@ import { snapshot as budgetSnapshot } from '../lib/security/budget.ts';
 import { prisma } from '../lib/core/db.ts';
 import { verifyChain } from '../lib/core/audit.ts';
 import { audit } from '../lib/core/audit.ts';
+import { TareqError, ForbiddenError, ValidationError } from '../lib/core/errors.ts';
 import { plan, planFromCommand } from '../lib/planner/index.ts';
 import { runMission } from '../lib/commercial/mission.ts';
 import { status as gmailStatus } from '../lib/integrations/gmail.ts';
@@ -50,6 +51,18 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body);
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(text) });
   res.end(text);
+}
+
+/**
+ * Map a thrown error to an HTTP status. Kept as a pure function so it can be
+ * unit-tested without a running server. Anything that is not a typed TareqError
+ * is treated as an internal fault (500).
+ */
+export function statusForError(err: unknown): { status: number; body: { error: string; code?: string } } {
+  if (err instanceof ForbiddenError) return { status: 401, body: { error: 'unauthorized' } };
+  if (err instanceof ValidationError) return { status: 400, body: { error: err.message, code: err.code } };
+  if (err instanceof TareqError) return { status: 422, body: { error: err.message, code: err.code } };
+  return { status: 500, body: { error: 'internal error' } };
 }
 
 async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
@@ -328,8 +341,11 @@ const server = createServer(async (req, res) => {
     const body = req.method === 'POST' ? await readBody(req) : {};
     await match.handler(req, res, owner, body);
   } catch (err) {
-    logger.error('api error', { error: (err as Error).message });
-    if (!res.headersSent) json(res, 500, { error: 'internal error' });
+    const { status, body } = statusForError(err);
+    const msg = (err as Error)?.message ?? 'unknown';
+    if (status >= 500) logger.error('api error', { error: msg });
+    else logger.warn('api rejected', { error: msg, status });
+    if (!res.headersSent) json(res, status, body);
   }
 });
 

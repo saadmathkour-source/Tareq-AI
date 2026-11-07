@@ -25,8 +25,17 @@
   the dashboard gained status filtering and search.
 - `tests/intent.test.ts`, `tests/integrations.test.ts`,
   `tests/capability-index.test.ts` (132 tests total, was 107).
+- `tests/api-errors.test.ts` — the API maps typed errors to honest status codes
+  (136 tests total).
 
 ### Fixed
+- `src/app/server.ts` — the top-level catch block turned every thrown error into
+  `500 internal error`, so a rejected login (wrong password or unknown email)
+  looked like a server crash and returned 500 instead of 401. Errors are now
+  mapped by type: `ForbiddenError` → 401 (uniform, never reveals whether the
+  email exists), `ValidationError` → 400, other `TareqError` → 422, and only
+  genuinely unexpected errors → 500. Extracted as a pure `statusForError()`
+  helper so the mapping is unit-tested.
 - `src/lib/core/audit.ts` — the hash-chained audit log hashed `metadata` with a
   raw `JSON.stringify`, but `metadata` is a Postgres `jsonb` column that does not
   preserve key order. Any entry with two or more metadata keys produced a hash
