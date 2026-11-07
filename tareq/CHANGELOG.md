@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased — Targeted Production Readiness & Real-World Capability Audit (2026-11-07)
+
+Ran a real-world capability audit (tasks 1-9) against the live database,
+providers and public data sources. Every claim below was measured.
+
+### Fixed
+- `src/lib/queue/tasks.ts` — `claimNext` marked up to 20 rows `RUNNING` with
+  `FOR UPDATE SKIP LOCKED` but returned only the first, leaking 19 stuck rows on
+  every claim. Now claims exactly one row (`LIMIT 1`). High severity.
+- `src/app/dashboard.html` — the finance panel read non-existent ledger fields
+  (`collectedUsd/expensesUsd/netUsd`) and always rendered $0.00. Now uses the
+  real `summary()` field names.
+- `src/lib/sales/discovery.ts` — persisting discovered buyers/leads issued ~40
+  sequential round-trips to the pooled database (measured 53s for 20 rows, and
+  P2024 pool timeouts under concurrency). Rewritten to generate ids client-side
+  and use `createMany`: ~4 queries, 6.8s for 20 rows, idempotent on re-run.
+
+### Added
+- `src/lib/integrations/buyers.ts`, `src/lib/sales/discovery.ts` — real buyer
+  discovery from public Hacker News comments (public handles + permalinks only,
+  no invented contacts), explainable scoring, duplicate detection by source URL.
+- `tests/buyers.test.ts`; registered buyer-discovery tools and worker handlers.
+- API endpoints `/leads /usage /errors /config /research` and matching dashboard
+  panels (Leads, Research & opportunity reports, API usage & cost, Errors,
+  Agent configuration) — completing the 16-item required dashboard surface.
+- `scripts/gen-matrix.ts` and `docs/CAPABILITY_VERIFICATION_MATRIX.md` — the
+  100-group verification matrix generated from the live capability index.
+- `tareq/railway.worker.toml` and a `preDeployCommand` in `tareq/railway.toml`.
+
+### Verified (measured, not claimed)
+- Tests 105 -> 107 pass / 0 fail; typecheck clean; production build succeeds.
+- Commercial acceptance test: 16/16, opportunity reaches `LEARNING`.
+- DeepSeek live chat, JSON mode, routing and cost recording verified; automatic
+  failover openai -> deepseek verified; OpenAI itself also returns real content.
+- Buyer discovery produced 20 real candidate leads from live HN data, and a
+  re-run created 0 duplicates.
+- Capability matrix: 98 `VERIFIED_FUNCTIONAL`, 2 `PARTIAL`, 0 unverified.
+
 ## Unreleased — Phase 1 (2026-11-07)
 
 Adopted the master directive; audited the existing implementation and corrected

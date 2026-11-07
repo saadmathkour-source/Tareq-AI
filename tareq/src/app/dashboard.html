@@ -133,6 +133,32 @@
   </section>
 
   <section>
+    <h2 data-i18n="s.leads">Leads &amp; customers</h2>
+    <div class="card"><div id="leads"></div></div>
+  </section>
+
+  <section>
+    <h2 data-i18n="s.research">Research &amp; opportunity reports</h2>
+    <div class="card"><div id="research"></div></div>
+  </section>
+
+  <section>
+    <h2 data-i18n="s.usage">API usage &amp; cost</h2>
+    <div class="grid" id="usageCards"></div>
+    <div class="card" style="margin-top:14px"><div id="usage"></div></div>
+  </section>
+
+  <section>
+    <h2 data-i18n="s.errors">Errors</h2>
+    <div class="card"><div id="errors"></div></div>
+  </section>
+
+  <section>
+    <h2 data-i18n="s.config">Agent configuration</h2>
+    <div class="card"><div id="config"></div></div>
+  </section>
+
+  <section>
     <h2 data-i18n="s.health">System health · audit</h2>
     <div class="grid" id="health"></div>
     <div class="card" style="margin-top:14px"><div id="audit"></div></div>
@@ -148,32 +174,38 @@ T.en = {
   'signin':'Sign in','loginHint':'Owner-only. No other account can issue commands.',
   's.executive':'Executive overview','s.control':'Control','s.approvals':'Approval center',
   's.tasks':'Task center','s.finance':'Revenue · expenses · profit','s.capabilities':'Capabilities (100)',
+  's.leads':'Leads & customers','s.research':'Research & opportunity reports','s.usage':'API usage & cost','s.errors':'Errors','s.config':'Agent configuration',
   's.health':'System health · audit','lbl.mode':'Operating mode','apply':'Apply','plan':'Plan',
   'modeHint':'OBSERVE forbids all acting tools. Sensitive actions (spend, outreach, publish) always need approval, in every mode.',
   'lbl.budget':'Budget','lbl.mode2':'Mode','lbl.tasks':'Tasks','lbl.approvals':'Pending approvals',
   'lbl.caps':'Capabilities implemented','lbl.chain':'Audit chain','lbl.revenue':'Collected revenue',
   'lbl.expenses':'Expenses','lbl.profit':'Net profit','lbl.leads':'Leads','lbl.deals':'Deals',
+  'lbl.calls':'API calls','lbl.apicost':'API cost','lbl.buyers':'Buyers','lbl.drafts':'Outreach drafts',
+  'lbl.dead':'Dead letters','lbl.failed':'Failed tasks','lbl.perr':'Provider errors',
   'lbl.open':'Open opportunities','lbl.providers':'AI providers','lbl.db':'Database','lbl.budgetLeft':'Budget remaining',
   'empty':'No records yet.','test':'TEST DATA','approve':'Approve','reject':'Reject','cancel':'Cancel',
   'confirmStop':'Emergency stop: drop to OBSERVE, cancel queued work and revoke sessions. Continue?',
   'confirmCancel':'Cancel this task?','allClear':'All clear','broken':'BROKEN at ','ok':'OK','failed':'FAILED',
-  'notimpl':'not implemented'
+  'notimpl':'not implemented','score':'Score','buyer':'Buyer','status':'Status','none':'None'
 };
 T.ar = {
   'refresh':'تحديث','stop':'إيقاف طارئ','logout':'تسجيل الخروج','loginTitle':'تسجيل دخول المالك',
   'signin':'دخول','loginHint':'للمالك فقط. لا يمكن لأي حساب آخر إصدار أوامر.',
   's.executive':'النظرة التنفيذية','s.control':'التحكم','s.approvals':'مركز الموافقات',
   's.tasks':'مركز المهام','s.finance':'الإيرادات · المصروفات · الربح','s.capabilities':'القدرات (100)',
+  's.leads':'العملاء المحتملون والعملاء','s.research':'تقارير البحث والفرص','s.usage':'استخدام واجهات الذكاء الاصطناعي والتكلفة','s.errors':'الأخطاء','s.config':'إعداد الوكيل',
   's.health':'صحة النظام · التدقيق','lbl.mode':'وضع التشغيل','apply':'تطبيق','plan':'تخطيط',
   'modeHint':'وضع OBSERVE يمنع كل أدوات التنفيذ. الإجراءات الحساسة (الدفع، التواصل، النشر) تتطلب موافقة دائمًا وفي كل الأوضاع.',
   'lbl.budget':'الميزانية','lbl.mode2':'الوضع','lbl.tasks':'المهام','lbl.approvals':'موافقات معلّقة',
   'lbl.caps':'قدرات مُنفّذة','lbl.chain':'سلسلة التدقيق','lbl.revenue':'الإيراد المُحصّل',
   'lbl.expenses':'المصروفات','lbl.profit':'صافي الربح','lbl.leads':'العملاء المحتملون','lbl.deals':'الصفقات',
+  'lbl.calls':'استدعاءات الواجهة','lbl.apicost':'تكلفة الواجهة','lbl.buyers':'المشترون','lbl.drafts':'مسودات التواصل',
+  'lbl.dead':'رسائل ميتة','lbl.failed':'مهام فاشلة','lbl.perr':'أخطاء المزوّد',
   'lbl.open':'فرص مفتوحة','lbl.providers':'مزودو الذكاء الاصطناعي','lbl.db':'قاعدة البيانات','lbl.budgetLeft':'الميزانية المتبقية',
   'empty':'لا توجد سجلات بعد.','test':'بيانات تجريبية','approve':'موافقة','reject':'رفض','cancel':'إلغاء',
   'confirmStop':'إيقاف طارئ: العودة إلى OBSERVE وإلغاء المهام المعلّقة وإبطال الجلسات. متابعة؟',
   'confirmCancel':'إلغاء هذه المهمة؟','allClear':'كل شيء سليم','broken':'مكسور عند ','ok':'سليم','failed':'فشل',
-  'notimpl':'غير مُنفّذ'
+  'notimpl':'غير مُنفّذ','score':'النتيجة','buyer':'المشتري','status':'الحالة','none':'لا شيء'
 };
 let lang = localStorage.getItem('tareq.lang') || 'en';
 let token = sessionStorage.getItem('tareq.token') || '';
@@ -206,9 +238,10 @@ function card(label, value, sub) {
 }
 
 async function refresh() {
-  const [h, mode, caps, tasks, approvals, fin, audit] = await Promise.all([
+  const [h, mode, caps, tasks, approvals, fin, audit, leads, usage, errors, config, research] = await Promise.all([
     api('/health?deep=1'), api('/mode'), api('/capabilities'),
     api('/tasks'), api('/approvals'), api('/finance'), api('/audit'),
+    api('/leads'), api('/usage'), api('/errors'), api('/config'), api('/research'),
   ]);
 
   // health dot
@@ -256,10 +289,11 @@ async function refresh() {
   // finance
   const f = fin.summary || {};
   document.getElementById('finance').innerHTML = [
-    card(t('lbl.revenue'), money(f.collectedUsd), (f.testRecords ? '<span class="testbadge">' + t('test') + '</span>' : '')),
-    card(t('lbl.expenses'), money(f.expensesUsd)),
-    card(t('lbl.profit'), money(f.netUsd)),
-    card(t('lbl.leads'), fin.acquisition && fin.acquisition.leads),
+    card(t('lbl.revenue'), money(f.cashCollectedUsd)),
+    card(t('lbl.expenses'), money(f.operatingCostsUsd)),
+    card(t('lbl.profit'), money(f.netProfitUsd)),
+    card(t('lbl.leads'), (fin.acquisition && fin.acquisition.leads) || 0),
+    card(t('lbl.deals'), (fin.deals && fin.deals.count) || 0),
   ].join('');
   const b = fin.budget || { capUsd: 0, spentUsd: 0, remainingUsd: 0 };
   const pct = b.capUsd ? Math.min(100, (b.spentUsd / b.capUsd) * 100) : 0;
@@ -288,6 +322,71 @@ async function refresh() {
     au.slice(0, 20).map((e) => '<tr><td>' + esc(e.action) + '</td><td class="muted">' + esc(e.actorType) +
       '</td><td>' + pill(e.severity, e.severity === 'critical' || e.severity === 'error' ? 'bad' : e.severity === 'warn' ? 'warn' : 'ok') +
       '</td><td class="muted">' + esc((e.createdAt || '').slice(0, 19).replace('T', ' ')) + '</td></tr>').join('') + '</tbody></table>';
+
+  // leads & customers
+  const ld = leads.leads || [];
+  document.getElementById('leads').innerHTML =
+    '<div class="row" style="margin-bottom:10px">' + pill(t('lbl.buyers') + ': ' + (leads.buyers || 0), 'info') +
+      pill(t('lbl.leads') + ': ' + ld.length, 'info') + pill(t('lbl.drafts') + ': ' + (leads.drafts || []).length, 'info') + '</div>' +
+    (ld.length === 0 ? '<p class="muted">' + t('empty') + '</p>' :
+      '<table><thead><tr><th>' + t('buyer') + '</th><th>' + t('score') + '</th><th>' + t('status') + '</th><th>Source</th><th>Opt-out</th></tr></thead><tbody>' +
+      ld.slice(0, 30).map((l) => '<tr><td>' + esc((l.buyer && l.buyer.name) || '—') + '</td><td>' + l.score +
+        '</td><td>' + pill(l.status, l.status === 'CONVERTED' ? 'ok' : l.status === 'DISQUALIFIED' ? 'bad' : 'info') +
+        '</td><td class="muted" style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc((l.buyer && l.buyer.sourceUrl) || '—') +
+        '</td><td>' + (l.optedOut ? pill('opted-out', 'bad') : '—') + '</td></tr>').join('') + '</tbody></table>');
+
+  // research & opportunity reports
+  const ev = research.evidence || [], opps = research.opportunities || [];
+  document.getElementById('research').innerHTML =
+    '<div class="row" style="margin-bottom:10px">' + pill('evidence: ' + ev.length, 'info') +
+      pill('claims: ' + (research.claims || []).length, 'info') +
+      pill('opportunities: ' + opps.length, 'info') +
+      pill('memory: ' + (research.memoryCount || 0), 'info') + '</div>' +
+    (ev.length === 0 && opps.length === 0 ? '<p class="muted">' + t('empty') + '</p>' :
+      '<table><thead><tr><th>Opportunity</th><th>Stage</th><th>Confidence</th><th>Stages</th></tr></thead><tbody>' +
+      opps.slice(0, 20).map((o) => '<tr><td>' + esc(o.title) + '</td><td>' + pill(o.stage, 'info') +
+        '</td><td>' + Number(o.confidence || 0).toFixed(2) + '</td><td class="muted">' + ((o.stageEvents || []).length) + '</td></tr>').join('') +
+      '</tbody></table>');
+
+  // API usage & cost
+  const up = usage.byProvider || [];
+  document.getElementById('usageCards').innerHTML = [
+    card(t('lbl.calls'), (fin.api && fin.api.calls) || 0),
+    card(t('lbl.apicost'), money(fin.api && fin.api.costUsd)),
+    card(t('lbl.providers'), up.map((p) => p.provider).join(', ') || '—'),
+  ].join('');
+  document.getElementById('usage').innerHTML = up.length === 0 ? '<p class="muted">' + t('empty') + '</p>' :
+    '<table><thead><tr><th>Provider</th><th>Calls</th><th>Cost</th><th>In tok</th><th>Out tok</th></tr></thead><tbody>' +
+    up.map((p) => '<tr><td>' + esc(p.provider) + '</td><td>' + p.calls + '</td><td>' + money(p.costUsd) +
+      '</td><td class="muted">' + p.inputTokens + '</td><td class="muted">' + p.outputTokens + '</td></tr>').join('') + '</tbody></table>';
+
+  // errors
+  const dead = errors.deadLetters || [], ft = errors.failedTasks || [], pe = errors.providerErrors || [];
+  document.getElementById('errors').innerHTML =
+    '<div class="row" style="margin-bottom:10px">' + pill(t('lbl.dead') + ': ' + dead.length, dead.length ? 'bad' : 'ok') +
+      pill(t('lbl.failed') + ': ' + ft.length, ft.length ? 'warn' : 'ok') +
+      pill(t('lbl.perr') + ': ' + pe.length, pe.length ? 'warn' : 'ok') + '</div>' +
+    (dead.length === 0 && ft.length === 0 && pe.length === 0 ? '<p class="muted">' + t('allClear') + '</p>' :
+      '<table><thead><tr><th>Kind</th><th>Error</th><th>When</th></tr></thead><tbody>' +
+      [...dead.map((d) => ({ kind: d.kind, error: d.error, at: d.createdAt })),
+       ...ft.map((x) => ({ kind: x.kind, error: x.error, at: x.updatedAt })),
+       ...pe.map((p) => ({ kind: 'provider:' + p.provider, error: p.error, at: p.createdAt }))]
+        .slice(0, 25).map((r) => '<tr><td>' + esc(r.kind) + '</td><td class="muted">' + esc((r.error || '').slice(0, 90)) +
+        '</td><td class="muted">' + esc((r.at || '').slice(0, 19).replace('T', ' ')) + '</td></tr>').join('') + '</tbody></table>');
+
+  // config
+  const cfg = config;
+  document.getElementById('config').innerHTML =
+    '<div class="row" style="margin-bottom:10px">' + pill(t('lbl.mode2') + ': ' + cfg.mode, 'info') +
+      pill('openai: ' + (cfg.integrations && cfg.integrations.openai), cfg.integrations && cfg.integrations.openai ? 'ok' : 'warn') +
+      pill('deepseek: ' + (cfg.integrations && cfg.integrations.deepseek), cfg.integrations && cfg.integrations.deepseek ? 'ok' : 'warn') +
+      pill('telegram: ' + (cfg.integrations && cfg.integrations.telegram), cfg.integrations && cfg.integrations.telegram ? 'ok' : 'info') +
+      pill('default: ' + (cfg.integrations && cfg.integrations.defaultProvider), 'info') + '</div>' +
+    '<table><thead><tr><th>Sub-agent</th><th>Role</th><th>Max cost</th><th>Enabled</th></tr></thead><tbody>' +
+    (cfg.subAgents || []).map((a) => '<tr><td>' + esc(a.name) + '</td><td class="muted">' + esc(a.role) +
+      '</td><td>' + money(a.maxCostUsd) + '</td><td>' + (a.enabled ? pill('on', 'ok') : pill('off', 'bad')) + '</td></tr>').join('') +
+    '</tbody></table>' +
+    '<p class="muted" style="font-size:12px;margin-top:10px">Schedules: ' + (cfg.schedules || []).map((s) => esc(s.name + ' (' + s.cron + ')')).join(', ') + '</p>';
 }
 
 // --- events ---

@@ -29,17 +29,40 @@ Open `http://localhost:3300/` for the dashboard.
 `railway.toml` is included:
 
 - Build: `npm run build`.
+- Pre-deploy: `npm run db:push && npm run bootstrap` (idempotent schema sync + seed).
 - Start: `npm run api`.
 - Health check: `/health` (timeout 120s).
 - Restart on failure, up to 5 retries.
 
-Run the worker as a second Railway service using `npm run worker`. Both services
-share the same environment variables and database.
+Run the worker as a second Railway service using `railway.worker.toml`
+(`startCommand = "npm run worker"`). Both services share the same environment
+variables and database. The API service alone will not process the durable
+queue; the worker service is required for autonomous operation.
 
-## Environment
+### Environment variables
 
 Set every variable from `.env.example` in the platform's variable store, not in
-the repo. Never commit `.env`.
+the repo. Never commit `.env`. Required names:
+
+| Variable | Purpose |
+| --- | --- |
+| `DATABASE_URL` | Postgres (pooled) connection string, `?schema=tareq` |
+| `DIRECT_URL` | Direct (non-pooled) connection for migrations |
+| `TAREQ_OWNER_EMAIL` / `TAREQ_OWNER_PASSWORD` | Primary owner credentials |
+| `TAREQ_SESSION_SECRET` | Session signing material (>= 16 chars) |
+| `DEEPSEEK_API_KEY` | DeepSeek provider key |
+| `OPENAI_API_KEY` | OpenAI provider key (optional if DeepSeek is used) |
+| `TAREQ_DEFAULT_PROVIDER` | `openai` or `deepseek` |
+| `TAREQ_BUDGET_CAP_USD` / `TAREQ_BUDGET_WARN_USD` | Hard spend cap and warning |
+| `TELEGRAM_BOT_TOKEN` / `TELEGRAM_OWNER_ID` | Optional owner notifications |
+
+### Rollback
+
+Railway keeps the previous deployment; use "Redeploy" on the prior successful
+build. Because state lives in Postgres, a rollback of the app does not revert
+data. `preDeployCommand` runs `db push` (additive); avoid destructive schema
+changes without a backup.
+
 
 ## Release checklist
 

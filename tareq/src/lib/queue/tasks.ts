@@ -88,6 +88,12 @@ async function dependenciesSatisfied(dependsOn: string[]): Promise<boolean> {
 /**
  * Atomically claim the next runnable task for `workerId`.
  * Skips tasks that are locked and still fresh (visibility timeout = staleAfterMs).
+ *
+ * Claims exactly ONE row: `FOR UPDATE SKIP LOCKED` with `LIMIT 1` lets many
+ * workers poll concurrently, each taking a distinct row, without a worker
+ * holding locks on rows it does not return. (An earlier `LIMIT 20` version
+ * flipped up to 20 rows to RUNNING but returned only one, leaving the rest
+ * stuck as RUNNING until the stale-reclaim swept them.)
  */
 export async function claimNext(workerId: string, staleAfterMs = 5 * 60_000): Promise<ClaimedTask | null> {
   const staleBefore = new Date(Date.now() - staleAfterMs);
@@ -106,7 +112,7 @@ export async function claimNext(workerId: string, staleAfterMs = 5 * 60_000): Pr
         CASE t.priority
           WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'NORMAL' THEN 2 ELSE 3 END,
         t.run_at ASC
-      LIMIT 20
+      LIMIT 1
       FOR UPDATE SKIP LOCKED
     )
     UPDATE tareq.tasks t

@@ -2,6 +2,54 @@
 
 Reverse-chronological. Every entry records what was actually run and observed.
 
+## 2026-11-07 — Targeted production-readiness & real-world capability audit
+
+### TASK 1 — real market research (live external calls)
+- HN Algolia + Wikipedia fetched live; real URLs, dates and text returned.
+- Finding: multi-term AND queries can return 0 hits while the capability works
+  for other query shapes; confidence correctly capped at 0.5.
+
+### TASK 2 — real buyer discovery (live external calls + persistence)
+- Built `src/lib/sales/discovery.ts` + `src/lib/integrations/buyers.ts`.
+- Live discovery from public HN comments produced 20 real candidate leads;
+  re-running created 0 duplicates (idempotent). Public handles/permalinks only.
+
+### TASK 3 — real service execution
+- `npm run acceptance` -> PASSED 16/16; ledger deltas: revenue $136.36,
+  cost $0.05, net $136.31. Runs are clearly marked sandbox/test transactions.
+
+### TASK 4 — dashboard/API audit (16 required items)
+- Fixed the finance-panel field bug; added `/leads /usage /errors /config
+  /research` and the matching panels. All 16 items now present and working.
+
+### TASK 5 — persistent autonomous execution
+- Fixed `claimNext` (was leaking 19 stuck rows per claim).
+- Verified: idempotency, retry, dead-letter, stale reclaim, and a real restart
+  test (task persisted PENDING -> fresh worker -> SUCCEEDED).
+
+### TASK 6 — AI providers
+- DeepSeek: live chat, JSON mode, routing, cost recording — all verified.
+- OpenAI: a real completion also succeeded during the audit.
+- Failover: unsetting the OpenAI key routed the request to DeepSeek.
+
+### TASK 7 — 100-capability matrix
+- Generated `docs/CAPABILITY_VERIFICATION_MATRIX.md`: 98 VERIFIED_FUNCTIONAL,
+  2 PARTIAL (13 product building, 27 integrations), 0 unverified.
+
+### TASK 8 — GitHub + Railway readiness
+- Push 403 diagnosed: the token is fine-grained and lacks **Contents: write**.
+  Fix: grant Repository permissions -> Contents: Read and write.
+- Hardened Railway config: `preDeployCommand`, worker service config, env table.
+
+### TASK 9 — first-dollar path
+- Trace: research -> demand -> offer -> approval -> outreach -> delivery ->
+  collection. First missing link: **no payment provider configured**, so no real
+  revenue can be collected yet (see KNOWN_LIMITATIONS #1).
+
+### Verification totals
+- `npm test` 107 pass / 0 fail; `tsc --noEmit` clean; `npm run build` OK;
+  acceptance 16/16; buyer discovery 20 real leads, 0 duplicates on re-run.
+
 ## 2026-11-07 — Phase 1: adoption, audit, functional completion
 
 ### Baseline verification (Phase 0)

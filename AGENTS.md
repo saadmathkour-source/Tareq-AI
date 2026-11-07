@@ -51,11 +51,16 @@ Always run `npm run typecheck` and `npm run build` before pushing.
 autonomous commercial agent. It does not share VoiceProxy's `package.json`,
 build, database or processes.
 
-- Run its own tooling from inside `tareq/`: `npm install`, `npm test` (98 tests),
+- Run its own tooling from inside `tareq/`: `npm install`, `npm test` (107 tests),
   `npm run db:push`, `npm run bootstrap`, `npm run api`, `npm run worker`,
   `npm run acceptance` (commercial end-to-end, 16 checks).
 - Owner dashboard is served by the API at `/` (`tareq/src/app/dashboard.html`),
-  bilingual AR/EN, data from persisted tables only.
+  bilingual AR/EN, data from persisted tables only. It exposes 16 sections
+  including Leads, Research reports, API usage & cost, Errors and Config.
+- **Database is a pooled Supabase connection with `connection_limit=1` and ~1.2s
+  round-trips.** Keep code paths query-frugal: prefer `createMany` with
+  client-generated ids, and do NOT `Promise.all` over multiple Prisma queries
+  (it causes `P2024` pool timeouts). See `tareq/src/lib/sales/discovery.ts`.
 - **Pitfall:** `/workspace/project/tareq` and `/workspace/project/Tareq-AI/tareq`
   are two *different* directories. Only `Tareq-AI/tareq` is git-tracked. Edit the
   tracked one (or sync with `tar`/`cp -r`); `rsync` is not installed here.
@@ -65,5 +70,7 @@ build, database or processes.
 - Read `tareq/README.md` before changing it. Governance (permissions, budget,
   stage gates, audit chain, evidence vault) is enforced in code, not by
   convention — keep it that way.
-- Note: this repo's injected `GITHUB_TOKEN` is currently **read-only** (git push
-  and the write APIs return `403`), so pushes need a token with `Contents: write`.
+- Note: this repo's injected `GITHUB_TOKEN` is a **fine-grained** token without
+  `Contents: write`, so git push returns `403`. Fix in GitHub: Settings ->
+  Developer settings -> Fine-grained tokens -> Repository permissions ->
+  Contents: Read and write. This is a scope issue, not a code issue.

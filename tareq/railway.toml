@@ -3,6 +3,10 @@ builder = "NIXPACKS"
 buildCommand = "npm run build"
 
 [deploy]
+# Applied before the new version starts serving. `db push` is idempotent when
+# the schema already matches; `bootstrap` seeds budget, sub-agents, schedules and
+# the owner only when missing. Both are safe to re-run on every deploy.
+preDeployCommand = "npm run db:push && npm run bootstrap"
 startCommand = "npm run api"
 healthcheckPath = "/health"
 healthcheckTimeout = 120

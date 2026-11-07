@@ -17,6 +17,7 @@ import { prisma } from '../src/lib/core/db.ts';
 import { think, parseJson } from '../src/lib/providers/router.ts';
 import { createLead } from '../src/lib/sales/leads.ts';
 import { draft } from '../src/lib/sales/outreach.ts';
+import { discoverAndPersist, followUpPlan } from '../src/lib/sales/discovery.ts';
 import { scanValueLeak, forgeMicroOffer, scoreIntent, type IntentSignal } from '../src/lib/commercial/engines.ts';
 import { painToCash, opportunityDNA, killSwitch } from '../src/lib/capabilities/engines.ts';
 import { remember } from '../src/lib/memory/index.ts';
@@ -309,6 +310,30 @@ function registerAll(): void {
     if (!topic) return { skipped: 'no topic' };
     const scan = await researchDemand(topic, { limit: Number(task.payload['limit'] ?? 20) });
     return { topic, volume: scan.volume, recentCount: scan.recentCount, confidence: scan.confidence, interpretation: scan.interpretation };
+  });
+
+  // --- real buyer discovery from public sources ----------------------------
+  registerHandler('sales.buyer_discovery', async (task) => {
+    const topic = String(task.payload['topic'] ?? '').trim();
+    if (!topic) return { skipped: 'no topic' };
+    const opportunityId = task.payload['opportunityId'] ? String(task.payload['opportunityId']) : undefined;
+    const { discovery, persisted } = await discoverAndPersist(topic, { limit: Number(task.payload['limit'] ?? 30), opportunityId });
+    return {
+      topic,
+      candidates: discovery.candidates.length,
+      totalHits: discovery.totalHits,
+      buyersCreated: persisted.buyersCreated,
+      leadsCreated: persisted.leadsCreated,
+      duplicatesSkipped: persisted.duplicatesSkipped,
+      interpretation: discovery.interpretation,
+    };
+  });
+
+  // --- follow-up planning (draft-only, approval-gated) ---------------------
+  registerHandler('sales.follow_up_plan', async (task) => {
+    const leadId = String(task.payload['leadId'] ?? '');
+    if (!leadId) return { skipped: 'no leadId' };
+    return followUpPlan(leadId);
   });
 }
 

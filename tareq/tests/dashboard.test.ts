@@ -27,6 +27,18 @@ test('dashboard fetches data from the authenticated API, not hardcoded values', 
   assert.match(html, /\/audit/, 'reads audit endpoint');
 });
 
+test('dashboard covers the full operational surface', () => {
+  for (const ep of ['/tasks', '/approvals', '/mode', '/leads', '/usage', '/errors', '/config', '/research', '/health']) {
+    assert.ok(html.includes(ep), `dashboard references ${ep}`);
+  }
+});
+
+test('dashboard uses the real ledger field names, not invented ones', () => {
+  assert.match(html, /cashCollectedUsd/, 'reads collected revenue from the ledger summary');
+  assert.match(html, /operatingCostsUsd/, 'reads expenses from the ledger summary');
+  assert.match(html, /netProfitUsd/, 'reads net profit from the ledger summary');
+});
+
 test('dashboard never hardcodes a revenue or profit figure', () => {
   // A literal "$" followed by digits would mean an invented metric on screen.
   assert.doesNotMatch(html, /\$\s?\d/, 'no hardcoded currency literal');

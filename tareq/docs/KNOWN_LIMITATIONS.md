@@ -24,3 +24,11 @@ Honest, current limitations. None of these is hidden from the dashboard.
 8. **The original detailed specs for groups 1-63 could not be recovered.** Their
    requirements in the matrix are reconstructed from the existing code and
    labelled as such.
+9. **The Supabase connection is pooled with `connection_limit=1` and ~1.2s
+   round-trip latency.** Every code path must stay query-frugal. `discovery.ts`
+   was rewritten to use `createMany` for this reason (20 rows: 53s -> 6.8s).
+   Raising the pool limit on the pooled URL would help all paths; until then,
+   avoid `Promise.all` over multiple Prisma queries (it causes P2024 timeouts).
+10. **GitHub push is blocked by token scope, not by the repository.** The
+    fine-grained token needs Repository permissions -> Contents: Read and write.
+    Nothing is broken in the code or the repo.

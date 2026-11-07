@@ -151,7 +151,87 @@ route('POST', '/approvals/decide', true, async (_req, res, owner, body) => {
 
 route('GET', '/finance', true, async (_req, res) => {
   const [summary, budget, acq] = await Promise.all([financeSummary(), budgetSnapshot(), acquisitionMetrics()]);
-  json(res, 200, { summary, budget, acquisition: acq });
+  const [dealTotal, dealWon, pipeline, calls, callCost] = await Promise.all([
+    prisma.deal.count(),
+    prisma.deal.count({ where: { status: 'WON' } }),
+    prisma.deal.aggregate({ where: { status: { in: ['PROPOSED', 'NEGOTIATION'] } }, _sum: { valueUsd: true } }),
+    prisma.providerCall.count(),
+    prisma.providerCall.aggregate({ _sum: { costUsd: true } }),
+  ]);
+  json(res, 200, {
+    summary,
+    budget,
+    acquisition: acq,
+    deals: { count: dealTotal, wonCount: dealWon, pipelineUsd: Number(pipeline._sum.valueUsd ?? 0) },
+    api: { calls, costUsd: Number(callCost._sum.costUsd ?? 0) },
+  });
+});
+
+/** API usage and cost monitoring by provider and purpose. */
+route('GET', '/usage', true, async (_req, res) => {
+  const [byProvider, byPurpose, recent] = await Promise.all([
+    prisma.providerCall.groupBy({ by: ['provider'], _count: { _all: true }, _sum: { costUsd: true, inputTokens: true, outputTokens: true } }),
+    prisma.providerCall.groupBy({ by: ['purpose'], _count: { _all: true }, _sum: { costUsd: true } }),
+    prisma.providerCall.findMany({ orderBy: { createdAt: 'desc' }, take: 30 }),
+  ]);
+  json(res, 200, {
+    byProvider: byProvider.map((r) => ({ provider: r.provider, calls: r._count._all, costUsd: Number(r._sum.costUsd ?? 0), inputTokens: r._sum.inputTokens ?? 0, outputTokens: r._sum.outputTokens ?? 0 })),
+    byPurpose: byPurpose.map((r) => ({ purpose: r.purpose, calls: r._count._all, costUsd: Number(r._sum.costUsd ?? 0) })),
+    recent,
+  });
+});
+
+/** Lead and customer management. */
+route('GET', '/leads', true, async (_req, res) => {
+  const [leads, buyers, drafts] = await Promise.all([
+    prisma.lead.findMany({ orderBy: { score: 'desc' }, take: 100, include: { buyer: true } }),
+    prisma.buyer.count(),
+    prisma.outreachDraft.findMany({ orderBy: { createdAt: 'desc' }, take: 50 }),
+  ]);
+  json(res, 200, { leads, buyers, drafts });
+});
+
+/** Error monitoring: dead letters, failed tasks, recent provider errors. */
+route('GET', '/errors', true, async (_req, res) => {
+  const [dead, failed, providerErrors] = await Promise.all([
+    prisma.deadLetter.findMany({ orderBy: { createdAt: 'desc' }, take: 50 }),
+    prisma.task.findMany({ where: { status: { in: ['FAILED', 'DEAD'] } }, orderBy: { updatedAt: 'desc' }, take: 50 }),
+    prisma.providerCall.findMany({ where: { ok: false }, orderBy: { createdAt: 'desc' }, take: 50 }),
+  ]);
+  json(res, 200, { deadLetters: dead, failedTasks: failed, providerErrors });
+});
+
+/** Agent configuration: sub-agents, schedules, budget, mode, integrations. */
+route('GET', '/config', true, async (_req, res) => {
+  const [agents, schedules, budget, mode] = await Promise.all([
+    prisma.subAgent.findMany({ orderBy: { name: 'asc' } }),
+    prisma.schedule.findMany({ orderBy: { name: 'asc' } }),
+    budgetSnapshot(),
+    currentMode(),
+  ]);
+  json(res, 200, {
+    mode,
+    budget,
+    subAgents: agents.map((a) => ({ name: a.name, role: a.role, enabled: a.enabled, allowedTools: a.allowedTools, maxCostUsd: Number(a.maxCostUsd), maxAttempts: a.maxAttempts })),
+    schedules: schedules.map((s) => ({ name: s.name, cron: s.cron, taskKind: s.taskKind, enabled: s.enabled, nextRunAt: s.nextRunAt })),
+    integrations: {
+      telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_OWNER_ID),
+      openai: Boolean(process.env.OPENAI_API_KEY),
+      deepseek: Boolean(process.env.DEEPSEEK_API_KEY),
+      defaultProvider: process.env.TAREQ_DEFAULT_PROVIDER ?? 'openai',
+    },
+  });
+});
+
+/** Research and opportunity reports. */
+route('GET', '/research', true, async (_req, res) => {
+  const [evidence, claims, opportunities, memory] = await Promise.all([
+    prisma.memoryRecord.findMany({ where: { kind: 'MARKET_EVIDENCE' }, orderBy: { updatedAt: 'desc' }, take: 50 }),
+    prisma.claim.findMany({ orderBy: { id: 'desc' }, take: 50 }),
+    prisma.opportunity.findMany({ orderBy: { createdAt: 'desc' }, take: 50, include: { stageEvents: { orderBy: { startedAt: 'asc' } } } }),
+    prisma.memoryRecord.count(),
+  ]);
+  json(res, 200, { evidence, claims, opportunities, memoryCount: memory });
 });
 
 route('GET', '/audit', true, async (_req, res) => {

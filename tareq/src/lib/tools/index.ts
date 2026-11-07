@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { registerTool, listTools, type ToolDefinition } from './registry.ts';
 import { researchSource, researchDemand } from './research.ts';
+import { discoverAndPersist } from '../sales/discovery.ts';
 
 /**
  * Tool registration (capability 6).
@@ -33,6 +34,19 @@ const demandScan: ToolDefinition<{ topic: string; limit?: number }> = {
   run: async (input) => researchDemand(input.topic, { limit: input.limit }),
 };
 
+const buyerDiscover: ToolDefinition<{ topic: string; limit?: number; opportunityId?: string }> = {
+  name: 'buyer.discover',
+  description: 'Discover candidate buyers from public discussion and persist them as leads (public handles only; no invented contacts).',
+  actionClass: 'research.search',
+  untrustedOutput: true,
+  schema: z.object({
+    topic: z.string().min(2).max(200),
+    limit: z.number().int().min(1).max(50).optional(),
+    opportunityId: z.string().uuid().optional(),
+  }),
+  run: async (input) => discoverAndPersist(input.topic, { limit: input.limit, opportunityId: input.opportunityId }),
+};
+
 let wired = false;
 
 /** Register the built-in tools. Idempotent so tests and restarts are safe. */
@@ -40,6 +54,7 @@ export function registerBuiltinTools(): void {
   if (wired) return;
   registerTool(fetchSource);
   registerTool(demandScan);
+  registerTool(buyerDiscover);
   wired = true;
 }
 
