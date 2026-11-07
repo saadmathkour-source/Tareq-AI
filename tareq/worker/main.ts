@@ -20,6 +20,7 @@ import { draft } from '../src/lib/sales/outreach.ts';
 import { discoverAndPersist, followUpPlan } from '../src/lib/sales/discovery.ts';
 import { scanValueLeak, forgeMicroOffer, scoreIntent, type IntentSignal } from '../src/lib/commercial/engines.ts';
 import { painToCash, opportunityDNA, killSwitch } from '../src/lib/capabilities/engines.ts';
+import { runMission } from '../src/lib/commercial/mission.ts';
 import { remember } from '../src/lib/memory/index.ts';
 import { researchDemand } from '../src/lib/tools/research.ts';
 import { registerBuiltinTools } from '../src/lib/tools/index.ts';
@@ -334,6 +335,27 @@ function registerAll(): void {
     const leadId = String(task.payload['leadId'] ?? '');
     if (!leadId) return { skipped: 'no leadId' };
     return followUpPlan(leadId);
+  });
+
+  // --- bounded autonomous commercial mission -------------------------------
+  // Runs the read-only lifecycle (discover..verify) for a topic and stops before
+  // any owner-gated step. Enqueued by POST /mission or by the scheduler.
+  registerHandler('commercial.mission', async (task) => {
+    const topic = String(task.payload['topic'] ?? task.payload['goal'] ?? '').trim();
+    if (!topic) return { skipped: 'no topic' };
+    const report = await runMission(topic, {
+      opportunityId: task.payload['opportunityId'] ? String(task.payload['opportunityId']) : undefined,
+      maxBuyers: Number(task.payload['maxBuyers'] ?? 20) || 20,
+    });
+    return {
+      topic,
+      opportunityId: report.opportunityId,
+      reachedStage: report.reachedStage,
+      buyers: report.buyers,
+      evidence: report.evidence.length,
+      demand: report.demand,
+      offer: report.offer,
+    };
   });
 }
 

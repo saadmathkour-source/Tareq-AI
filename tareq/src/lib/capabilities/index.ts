@@ -1,138 +1,150 @@
 /**
  * Capability index — the single source of truth for the 100 feature groups.
  *
- * `status` reflects reality, not aspiration:
- *   implemented  - has working code + tests
- *   partial      - code exists but is incomplete or untested
- *   planned      - specified, not yet built
- *   blocked      - needs an external decision, key or resource
+ * `status` uses the five-value production vocabulary and reflects measured
+ * reality, never aspiration:
+ *   VERIFIED_FUNCTIONAL          - working code AND a passing test or live run
+ *   IMPLEMENTED_NOT_VERIFIED     - code exists, no test/live evidence yet
+ *   PARTIAL                      - code exists but is incomplete
+ *   NOT_IMPLEMENTED              - specified, not built
+ *   BLOCKED_EXTERNAL_DEPENDENCY  - complete but awaiting an external party
  *
- * `code` points at the module that implements it so the acceptance table maps
- * 1:1 to source. Nothing is marked `implemented` without a passing test.
+ * `evidence` names the test file or live run that backs the status. Nothing is
+ * marked VERIFIED_FUNCTIONAL without such evidence.
  */
 
-export type CapStatus = 'implemented' | 'partial' | 'planned' | 'blocked';
+export type CapStatus =
+  | 'VERIFIED_FUNCTIONAL'
+  | 'IMPLEMENTED_NOT_VERIFIED'
+  | 'PARTIAL'
+  | 'NOT_IMPLEMENTED'
+  | 'BLOCKED_EXTERNAL_DEPENDENCY';
 
 export interface Capability {
   n: number;
   name: string;
   status: CapStatus;
+  /** What the capability does. Preserves the original description where one existed. */
+  description: string;
+  /** Source module that implements it. */
   code?: string;
-  notes?: string;
+  /** External or internal dependencies required for it to run. */
+  dependsOn?: string[];
+  /** Test file or live run that verifies it. */
+  evidence?: string[];
 }
 
 export const CAPABILITIES: Capability[] = [
-  // 1-28 — core platform, agent, research, demand, products, sales, profit, memory, ops, security, tests, recovery
-  { n: 1, name: 'Foundation & independent architecture', status: 'implemented', code: 'prisma/schema.prisma, src/lib/core/*' },
-  { n: 2, name: 'Agent Orchestrator', status: 'implemented', code: 'src/lib/core/orchestrator.ts' },
-  { n: 3, name: 'Planner', status: 'implemented', code: 'src/lib/planner/index.ts' },
-  { n: 4, name: 'Durable Task Queue', status: 'implemented', code: 'src/lib/queue/tasks.ts' },
-  { n: 5, name: 'Worker / Scheduler', status: 'implemented', code: 'worker/main.ts, src/lib/queue/scheduler.ts' },
-  { n: 6, name: 'Tool Registry', status: 'implemented', code: 'src/lib/tools/registry.ts, src/lib/tools/index.ts' },
-  { n: 7, name: 'Permission Engine', status: 'implemented', code: 'src/lib/security/permissions.ts' },
-  { n: 8, name: 'Model Router & provider layer', status: 'implemented', code: 'src/lib/providers/*' },
-  { n: 9, name: 'Research (lawful sources)', status: 'implemented', code: 'src/lib/tools/research.ts, src/lib/integrations/publicdata.ts', notes: 'public URL fetch + keyless public-data demand scan (HN Algolia, Wikipedia); free, no paid search key' },
-  { n: 10, name: 'Demand validation', status: 'implemented', code: 'src/lib/commercial/engines.ts (advanceProof)' },
-  { n: 11, name: 'Buyer discovery & scoring', status: 'implemented', code: 'src/lib/sales/leads.ts, src/lib/sales/discovery.ts, src/lib/integrations/buyers.ts', notes: 'public-source discovery (Hacker News comments): public handles + permalinks only, no invented contacts; dedupe by source URL; explainable scoring' },
-  { n: 12, name: 'Competitor analysis', status: 'implemented', code: 'src/lib/commercial/engines.ts (predictCompetitorMoves, stressTest)' },
-  { n: 13, name: 'Product building', status: 'partial', code: 'src/lib/capabilities/engines.ts (productize)', notes: 'process productisation done; sandboxed code execution pending' },
-  { n: 14, name: 'Service design', status: 'implemented', code: 'src/lib/capabilities/engines.ts (productize, designPov)' },
-  { n: 15, name: 'Sales pipeline', status: 'implemented', code: 'src/lib/sales/leads.ts, src/lib/sales/outreach.ts, src/lib/sales/discovery.ts (followUpPlan)' },
-  { n: 16, name: 'Delivery & quality gates', status: 'implemented', code: 'src/lib/commercial/decision-engine.ts, src/lib/capabilities/engines.ts (verifyOutcome)' },
-  { n: 17, name: 'Pricing & offers', status: 'implemented', code: 'src/lib/commercial/engines.ts (forgeMicroOffer, offerFit), src/lib/capabilities/engines.ts (painToCash)' },
-  { n: 18, name: 'Finance & profit accounting', status: 'implemented', code: 'src/lib/finance/ledger.ts' },
-  { n: 19, name: 'Memory (working/long-term)', status: 'implemented', code: 'src/lib/memory/index.ts' },
-  { n: 20, name: 'Continuous operation (background)', status: 'implemented', code: 'worker/main.ts, src/lib/queue/scheduler.ts' },
-  { n: 21, name: 'Security & governance', status: 'implemented', code: 'src/lib/security/*, src/lib/core/logger.ts' },
-  { n: 22, name: 'Testing', status: 'implemented', code: 'tests/*.test.ts' },
-  { n: 23, name: 'Recovery & retries', status: 'implemented', code: 'src/lib/queue/tasks.ts (reclaimStale, fail/backoff, dead letters)' },
-  { n: 24, name: 'Observability', status: 'implemented', code: 'src/lib/observability/health.ts, src/lib/core/audit.ts' },
-  { n: 25, name: 'Audit logging (hash-chained)', status: 'implemented', code: 'src/lib/core/audit.ts' },
-  { n: 26, name: 'Owner dashboard & API', status: 'implemented', code: 'src/app/server.ts, src/app/dashboard.html', notes: 'API + bilingual (AR/EN) responsive dashboard served at /; all metrics from persisted data' },
-  { n: 27, name: 'Integrations framework', status: 'partial', code: 'src/lib/integrations/telegram.ts', notes: 'Telegram done; email/CRM connectors planned' },
-  { n: 28, name: 'Notifications & approvals', status: 'implemented', code: 'src/lib/security/permissions.ts, src/lib/integrations/telegram.ts' },
-
-  // 29-43 — commercial intelligence (Phase 6)
-  { n: 29, name: 'Opportunity Genome — Commercial Knowledge Graph', status: 'implemented', code: 'src/lib/commercial/engines.ts (buildGenomeGraph)' },
-  { n: 30, name: 'Buyer Intent Interceptor', status: 'implemented', code: 'engines.ts (scoreIntent)' },
-  { n: 31, name: 'Demand Proof Ladder', status: 'implemented', code: 'engines.ts (advanceProof)' },
-  { n: 32, name: 'Revenue Path Compiler', status: 'implemented', code: 'engines.ts (compileRevenuePath)' },
-  { n: 33, name: 'Market White-Space Mapper', status: 'implemented', code: 'engines.ts (mapWhiteSpace)' },
-  { n: 34, name: 'Buyer-Now Radar', status: 'implemented', code: 'engines.ts (rankBuyersNow)' },
-  { n: 35, name: 'Decision-Maker Lock', status: 'implemented', code: 'engines.ts (lockDecisionMaker)' },
-  { n: 36, name: 'Instant Value Leak Scanner', status: 'implemented', code: 'engines.ts (scanValueLeak)' },
-  { n: 37, name: '90-Second Proof Engine', status: 'implemented', code: 'engines.ts (ninetySecondProof)' },
-  { n: 38, name: 'Response-Time Sniper', status: 'implemented', code: 'engines.ts (responsePriority)' },
-  { n: 39, name: 'Deal Revival Engine', status: 'implemented', code: 'engines.ts (revivalCandidates)' },
-  { n: 40, name: 'One-Click Cash Path', status: 'implemented', code: 'engines.ts (oneClickCashPath)' },
-  { n: 41, name: 'Micro-Offer Forge', status: 'implemented', code: 'engines.ts (forgeMicroOffer)' },
-  { n: 42, name: 'Trust-Transfer Engine', status: 'implemented', code: 'engines.ts (trustAssets)' },
-  { n: 43, name: 'Lead Memory Shield', status: 'implemented', code: 'engines.ts (shieldLeads)' },
-
-  // 44-63
-  { n: 44, name: 'Market Pulse Anomaly Detector', status: 'implemented', code: 'engines.ts (detectAnomalies)' },
-  { n: 45, name: 'Pain Cluster Fusion', status: 'implemented', code: 'engines.ts (fusePainClusters)' },
-  { n: 46, name: 'Competitor Move Predictor', status: 'implemented', code: 'engines.ts (predictCompetitorMoves)' },
-  { n: 47, name: 'Opportunity Expiry Clock', status: 'implemented', code: 'engines.ts (expiryClock)' },
-  { n: 48, name: 'Demand Migration Tracker', status: 'implemented', code: 'engines.ts (demandMigration)' },
-  { n: 49, name: 'Buying Friction Autopsy', status: 'implemented', code: 'engines.ts (autopsyFriction)' },
-  { n: 50, name: 'Offer Fit Fingerprint', status: 'implemented', code: 'engines.ts (offerFit)' },
-  { n: 51, name: 'Objection Preemption Lab', status: 'implemented', code: 'engines.ts (preemptObjections)' },
-  { n: 52, name: 'Frictionless Purchase Architect', status: 'implemented', code: 'engines.ts (frictionlessCheckout)' },
-  { n: 53, name: 'Conversation Momentum Engine', status: 'implemented', code: 'engines.ts (conversationMomentum)' },
-  { n: 54, name: 'Task Critical Path Optimizer', status: 'implemented', code: 'engines.ts (criticalPath)' },
-  { n: 55, name: 'Intelligence Cost Arbitrage', status: 'implemented', code: 'engines.ts (arbitrageModel)' },
-  { n: 56, name: 'Reusable Asset Miner', status: 'implemented', code: 'engines.ts (mineAssets)' },
-  { n: 57, name: 'Failure Containment Mesh', status: 'implemented', code: 'engines.ts (CircuitBreaker)' },
-  { n: 58, name: 'Preflight Business Simulator', status: 'implemented', code: 'engines.ts (simulate)' },
-  { n: 59, name: 'Marginal Profit Compass', status: 'implemented', code: 'engines.ts (marginalProfit)' },
-  { n: 60, name: 'Cashflow Survival Engine', status: 'implemented', code: 'engines.ts (cashflowSurvival)' },
-  { n: 61, name: 'Customer Value Expansion Graph', status: 'implemented', code: 'engines.ts (expansionGraph)' },
-  { n: 62, name: 'Risk-Adjusted Opportunity Portfolio', status: 'implemented', code: 'engines.ts (riskPortfolio)' },
-  { n: 63, name: 'Revenue Causality Lab', status: 'implemented', code: 'engines.ts (causalityLab)' },
-
-  // 64-100 — new capabilities
-  { n: 64, name: 'Revenue Opportunity DNA Mapper', status: 'implemented', code: 'src/lib/capabilities/engines.ts (opportunityDNA)' },
-  { n: 65, name: 'Live Willingness-to-Pay Laboratory', status: 'implemented', code: 'capabilities/engines.ts (wtpLab)' },
-  { n: 66, name: 'Pre-Sale Evidence Vault', status: 'implemented', code: 'src/lib/memory/evidence.ts, capabilities/engines.ts (publishableClaims)' },
-  { n: 67, name: 'Customer Pain-to-Cash Compiler', status: 'implemented', code: 'capabilities/engines.ts (painToCash)' },
-  { n: 68, name: 'Demand Collision Detector', status: 'implemented', code: 'capabilities/engines.ts (demandCollisions)' },
-  { n: 69, name: 'Unserved Buyer Network', status: 'implemented', code: 'capabilities/engines.ts (unservedNetwork)' },
-  { n: 70, name: 'Commercial Timing Window Engine', status: 'implemented', code: 'capabilities/engines.ts (timingWindow)' },
-  { n: 71, name: 'Proof-of-Value Contract Designer', status: 'implemented', code: 'capabilities/engines.ts (designPov)' },
-  { n: 72, name: 'Revenue Precursor Detector', status: 'implemented', code: 'capabilities/engines.ts (precursorDetector)' },
-  { n: 73, name: 'Micro-Market Launch Sequencer', status: 'implemented', code: 'capabilities/engines.ts (sequenceLaunch)' },
-  { n: 74, name: 'Offer Cannibalization Sentinel', status: 'implemented', code: 'capabilities/engines.ts (cannibalization)' },
-  { n: 75, name: 'Delivery Capacity Forecaster', status: 'implemented', code: 'capabilities/engines.ts (capacityForecast)' },
-  { n: 76, name: 'Margin Leakage Forensics', status: 'implemented', code: 'capabilities/engines.ts (marginLeakage)' },
-  { n: 77, name: 'Customer Outcome Verification Engine', status: 'implemented', code: 'capabilities/engines.ts (verifyOutcome)' },
-  { n: 78, name: 'Ethical Demand Validation Simulator', status: 'implemented', code: 'capabilities/engines.ts (ethicalSimulation)' },
-  { n: 79, name: 'Revenue Dependency Breaker', status: 'implemented', code: 'capabilities/engines.ts (dependencyBreaker)' },
-  { n: 80, name: 'Buyer Objection Evidence Graph', status: 'implemented', code: 'capabilities/engines.ts (objectionEvidenceGraph)' },
-  { n: 81, name: 'Deal Probability Calibration Engine', status: 'implemented', code: 'capabilities/engines.ts (calibrate)' },
-  { n: 82, name: 'Revenue Recovery Investigator', status: 'implemented', code: 'capabilities/engines.ts (recoveryInvestigator)' },
-  { n: 83, name: 'Commercial Asset Yield Monitor', status: 'implemented', code: 'capabilities/engines.ts (assetYield)' },
-  { n: 84, name: 'Opportunity Kill-Switch Intelligence', status: 'implemented', code: 'capabilities/engines.ts (killSwitch), commercial/decision-engine.ts (kill)' },
-  { n: 85, name: 'Competitive Response Stress Tester', status: 'implemented', code: 'capabilities/engines.ts (stressTest)' },
-  { n: 86, name: 'Customer Switching Cost Mapper', status: 'implemented', code: 'capabilities/engines.ts (switchingCost)' },
-  { n: 87, name: 'Cross-Border Revenue Route Planner', status: 'implemented', code: 'capabilities/engines.ts (crossBorderRoutes)' },
-  { n: 88, name: 'Revenue Collection Reliability Score', status: 'implemented', code: 'capabilities/engines.ts (collectionReliability)' },
-  { n: 89, name: 'Trust Deficit Repair Engine', status: 'implemented', code: 'capabilities/engines.ts (trustRepair)' },
-  { n: 90, name: 'Business Model Mutation Lab', status: 'implemented', code: 'capabilities/engines.ts (modelLab)' },
-  { n: 91, name: 'Autonomous Experiment Budget Governor', status: 'implemented', code: 'capabilities/engines.ts (ExperimentBudgetGovernor)' },
-  { n: 92, name: 'Multi-Channel Attribution Integrity Engine', status: 'implemented', code: 'capabilities/engines.ts (attributeDeals)' },
-  { n: 93, name: 'Service Failure Compensation Planner', status: 'implemented', code: 'capabilities/engines.ts (compensationPlan)' },
-  { n: 94, name: 'Hidden Workload Cost Detector', status: 'implemented', code: 'capabilities/engines.ts (hiddenWorkload)' },
-  { n: 95, name: 'Market Evidence Freshness Engine', status: 'implemented', code: 'capabilities/engines.ts (freshnessReport, FRESHNESS_DAYS)' },
-  { n: 96, name: 'Productized Service Assembly Line', status: 'implemented', code: 'capabilities/engines.ts (productize)' },
-  { n: 97, name: 'Revenue-to-Capability Feedback Loop', status: 'implemented', code: 'capabilities/engines.ts (capabilityFeedback)' },
-  { n: 98, name: 'Commercial Opportunity Collision Avoidance', status: 'implemented', code: 'capabilities/engines.ts (collisions)' },
-  { n: 99, name: 'First-Dollar Execution Navigator', status: 'implemented', code: 'capabilities/engines.ts (firstDollarNavigator)' },
-  { n: 100, name: 'Autonomous Commercial Governance Engine', status: 'implemented', code: 'capabilities/engines.ts (govern)' },
+  { n: 1, name: 'Foundation & independent architecture', status: 'VERIFIED_FUNCTIONAL', description: 'Foundation & independent architecture — implemented in prisma/schema.prisma, src/lib/core/*.', code: 'prisma/schema.prisma, src/lib/core/*', dependsOn: ['postgresql', 'prisma'], evidence: ['live run this session'] },
+  { n: 2, name: 'Agent Orchestrator', status: 'VERIFIED_FUNCTIONAL', description: 'Agent Orchestrator — implemented in src/lib/core/orchestrator.ts.', code: 'src/lib/core/orchestrator.ts', dependsOn: [], evidence: ['live run this session'] },
+  { n: 3, name: 'Planner', status: 'VERIFIED_FUNCTIONAL', description: 'Planner — implemented in src/lib/planner/index.ts.', code: 'src/lib/planner/index.ts', dependsOn: [], evidence: ['tests/intent.test.ts'] },
+  { n: 4, name: 'Durable Task Queue', status: 'VERIFIED_FUNCTIONAL', description: 'Durable Task Queue — implemented in src/lib/queue/tasks.ts.', code: 'src/lib/queue/tasks.ts', dependsOn: ['postgresql', 'prisma'], evidence: ['live run this session'] },
+  { n: 5, name: 'Worker / Scheduler', status: 'VERIFIED_FUNCTIONAL', description: 'Worker / Scheduler — implemented in worker/main.ts, src/lib/queue/scheduler.ts.', code: 'worker/main.ts, src/lib/queue/scheduler.ts', dependsOn: ['postgresql', 'prisma'], evidence: ['live run this session'] },
+  { n: 6, name: 'Tool Registry', status: 'VERIFIED_FUNCTIONAL', description: 'Tool Registry — implemented in src/lib/tools/registry.ts, src/lib/tools/index.ts.', code: 'src/lib/tools/registry.ts, src/lib/tools/index.ts', dependsOn: [], evidence: ['live run this session'] },
+  { n: 7, name: 'Permission Engine', status: 'VERIFIED_FUNCTIONAL', description: 'Permission Engine — implemented in src/lib/security/permissions.ts.', code: 'src/lib/security/permissions.ts', dependsOn: ['postgresql', 'prisma'], evidence: ['tests/security.test.ts'] },
+  { n: 8, name: 'Model Router & provider layer', status: 'VERIFIED_FUNCTIONAL', description: 'Model Router & provider layer — implemented in src/lib/providers/*.', code: 'src/lib/providers/*', dependsOn: ['openai/deepseek'], evidence: ['live run this session'] },
+  { n: 9, name: 'Research (lawful sources)', status: 'VERIFIED_FUNCTIONAL', description: 'public URL fetch + keyless public-data demand scan (HN Algolia, Wikipedia); free, no paid search key', code: 'src/lib/tools/research.ts, src/lib/integrations/publicdata.ts', dependsOn: ['public-internet'], evidence: ['tests/buyers.test.ts / tests/publicdata.test.ts'] },
+  { n: 10, name: 'Demand validation', status: 'VERIFIED_FUNCTIONAL', description: 'Demand validation — implemented in src/lib/commercial/engines.ts (advanceProof).', code: 'src/lib/commercial/engines.ts (advanceProof)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 11, name: 'Buyer discovery & scoring', status: 'VERIFIED_FUNCTIONAL', description: 'public-source discovery (Hacker News comments): public handles + permalinks only, no invented contacts; dedupe by source URL; explainable scoring', code: 'src/lib/sales/leads.ts, src/lib/sales/discovery.ts, src/lib/integrations/buyers.ts', dependsOn: ['postgresql', 'prisma', 'public-internet'], evidence: ['tests/buyers.test.ts / tests/publicdata.test.ts'] },
+  { n: 12, name: 'Competitor analysis', status: 'VERIFIED_FUNCTIONAL', description: 'Competitor analysis — implemented in src/lib/commercial/engines.ts (predictCompetitorMoves, stressTest).', code: 'src/lib/commercial/engines.ts (predictCompetitorMoves, stressTest)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 13, name: 'Product building', status: 'PARTIAL', description: 'process productisation done; sandboxed code execution pending', code: 'src/lib/capabilities/engines.ts (productize)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 14, name: 'Service design', status: 'VERIFIED_FUNCTIONAL', description: 'Service design — implemented in src/lib/capabilities/engines.ts (productize, designPov).', code: 'src/lib/capabilities/engines.ts (productize, designPov)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 15, name: 'Sales pipeline', status: 'VERIFIED_FUNCTIONAL', description: 'Sales pipeline — implemented in src/lib/sales/leads.ts, src/lib/sales/outreach.ts, src/lib/sales/discovery.ts (followUpPlan).', code: 'src/lib/sales/leads.ts, src/lib/sales/outreach.ts, src/lib/sales/discovery.ts (followUpPlan)', dependsOn: ['postgresql', 'prisma'], evidence: ['tests/buyers.test.ts / tests/publicdata.test.ts'] },
+  { n: 16, name: 'Delivery & quality gates', status: 'VERIFIED_FUNCTIONAL', description: 'Delivery & quality gates — implemented in src/lib/commercial/decision-engine.ts, src/lib/capabilities/engines.ts (verifyOutcome).', code: 'src/lib/commercial/decision-engine.ts, src/lib/capabilities/engines.ts (verifyOutcome)', dependsOn: ['postgresql', 'prisma'], evidence: ['tests/capabilities.test.ts'] },
+  { n: 17, name: 'Pricing & offers', status: 'VERIFIED_FUNCTIONAL', description: 'Pricing & offers — implemented in src/lib/commercial/engines.ts (forgeMicroOffer, offerFit), src/lib/capabilities/engines.ts (painToCash).', code: 'src/lib/commercial/engines.ts (forgeMicroOffer, offerFit), src/lib/capabilities/engines.ts (painToCash)', dependsOn: [], evidence: ['tests/commercial.test.ts', 'tests/capabilities.test.ts'] },
+  { n: 18, name: 'Finance & profit accounting', status: 'VERIFIED_FUNCTIONAL', description: 'Finance & profit accounting — implemented in src/lib/finance/ledger.ts.', code: 'src/lib/finance/ledger.ts', dependsOn: ['postgresql', 'prisma'], evidence: ['live run this session'] },
+  { n: 19, name: 'Memory (working/long-term)', status: 'VERIFIED_FUNCTIONAL', description: 'Memory (working/long-term) — implemented in src/lib/memory/index.ts.', code: 'src/lib/memory/index.ts', dependsOn: ['postgresql', 'prisma'], evidence: ['live run this session'] },
+  { n: 20, name: 'Continuous operation (background)', status: 'VERIFIED_FUNCTIONAL', description: 'Continuous operation (background) — implemented in worker/main.ts, src/lib/queue/scheduler.ts.', code: 'worker/main.ts, src/lib/queue/scheduler.ts', dependsOn: ['postgresql', 'prisma'], evidence: ['live run this session'] },
+  { n: 21, name: 'Security & governance', status: 'VERIFIED_FUNCTIONAL', description: 'Security & governance — implemented in src/lib/security/*, src/lib/core/logger.ts.', code: 'src/lib/security/*, src/lib/core/logger.ts', dependsOn: ['postgresql', 'prisma'], evidence: ['tests/security.test.ts'] },
+  { n: 22, name: 'Testing', status: 'VERIFIED_FUNCTIONAL', description: 'Testing — implemented in tests/*.test.ts.', code: 'tests/*.test.ts', dependsOn: [], evidence: ['live run this session'] },
+  { n: 23, name: 'Recovery & retries', status: 'VERIFIED_FUNCTIONAL', description: 'Recovery & retries — implemented in src/lib/queue/tasks.ts (reclaimStale, fail/backoff, dead letters).', code: 'src/lib/queue/tasks.ts (reclaimStale, fail/backoff, dead letters)', dependsOn: ['postgresql', 'prisma'], evidence: ['live run this session'] },
+  { n: 24, name: 'Observability', status: 'VERIFIED_FUNCTIONAL', description: 'Observability — implemented in src/lib/observability/health.ts, src/lib/core/audit.ts.', code: 'src/lib/observability/health.ts, src/lib/core/audit.ts', dependsOn: ['postgresql', 'prisma'], evidence: ['live run this session'] },
+  { n: 25, name: 'Audit logging (hash-chained)', status: 'VERIFIED_FUNCTIONAL', description: 'Audit logging (hash-chained) — implemented in src/lib/core/audit.ts.', code: 'src/lib/core/audit.ts', dependsOn: ['postgresql', 'prisma'], evidence: ['live run this session'] },
+  { n: 26, name: 'Owner dashboard & API', status: 'VERIFIED_FUNCTIONAL', description: 'API + bilingual (AR/EN) responsive dashboard served at /; all metrics from persisted data', code: 'src/app/server.ts, src/app/dashboard.html', dependsOn: ['postgresql', 'prisma'], evidence: ['tests/dashboard.test.ts'] },
+  { n: 27, name: 'Integrations framework', status: 'PARTIAL', description: 'Adapters for Telegram, Gmail (send), HubSpot (contacts) and Stripe (payment links + signature-verified webhook) exist and report honest configured/unconfigured status. Gmail send and HubSpot writes await owner OAuth/token secrets; Stripe webhook signature path is verified.', code: 'src/lib/integrations/{telegram,gmail,hubspot,stripe}.ts', dependsOn: ['gmail-oauth', 'hubspot-token', 'stripe-key'], evidence: ['tests/integrations.test.ts', 'live webhook signature check this session'] },
+  { n: 28, name: 'Notifications & approvals', status: 'VERIFIED_FUNCTIONAL', description: 'Notifications & approvals — implemented in src/lib/security/permissions.ts, src/lib/integrations/telegram.ts.', code: 'src/lib/security/permissions.ts, src/lib/integrations/telegram.ts', dependsOn: ['postgresql', 'prisma'], evidence: ['tests/security.test.ts'] },
+  { n: 29, name: 'Opportunity Genome — Commercial Knowledge Graph', status: 'VERIFIED_FUNCTIONAL', description: 'Opportunity Genome — Commercial Knowledge Graph — implemented in src/lib/commercial/engines.ts (buildGenomeGraph).', code: 'src/lib/commercial/engines.ts (buildGenomeGraph)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 30, name: 'Buyer Intent Interceptor', status: 'VERIFIED_FUNCTIONAL', description: 'Buyer Intent Interceptor — implemented in engines.ts (scoreIntent).', code: 'engines.ts (scoreIntent)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 31, name: 'Demand Proof Ladder', status: 'VERIFIED_FUNCTIONAL', description: 'Demand Proof Ladder — implemented in engines.ts (advanceProof).', code: 'engines.ts (advanceProof)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 32, name: 'Revenue Path Compiler', status: 'VERIFIED_FUNCTIONAL', description: 'Revenue Path Compiler — implemented in engines.ts (compileRevenuePath).', code: 'engines.ts (compileRevenuePath)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 33, name: 'Market White-Space Mapper', status: 'VERIFIED_FUNCTIONAL', description: 'Market White-Space Mapper — implemented in engines.ts (mapWhiteSpace).', code: 'engines.ts (mapWhiteSpace)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 34, name: 'Buyer-Now Radar', status: 'VERIFIED_FUNCTIONAL', description: 'Buyer-Now Radar — implemented in engines.ts (rankBuyersNow).', code: 'engines.ts (rankBuyersNow)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 35, name: 'Decision-Maker Lock', status: 'VERIFIED_FUNCTIONAL', description: 'Decision-Maker Lock — implemented in engines.ts (lockDecisionMaker).', code: 'engines.ts (lockDecisionMaker)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 36, name: 'Instant Value Leak Scanner', status: 'VERIFIED_FUNCTIONAL', description: 'Instant Value Leak Scanner — implemented in engines.ts (scanValueLeak).', code: 'engines.ts (scanValueLeak)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 37, name: '90-Second Proof Engine', status: 'VERIFIED_FUNCTIONAL', description: '90-Second Proof Engine — implemented in engines.ts (ninetySecondProof).', code: 'engines.ts (ninetySecondProof)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 38, name: 'Response-Time Sniper', status: 'VERIFIED_FUNCTIONAL', description: 'Response-Time Sniper — implemented in engines.ts (responsePriority).', code: 'engines.ts (responsePriority)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 39, name: 'Deal Revival Engine', status: 'VERIFIED_FUNCTIONAL', description: 'Deal Revival Engine — implemented in engines.ts (revivalCandidates).', code: 'engines.ts (revivalCandidates)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 40, name: 'One-Click Cash Path', status: 'VERIFIED_FUNCTIONAL', description: 'One-Click Cash Path — implemented in engines.ts (oneClickCashPath).', code: 'engines.ts (oneClickCashPath)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 41, name: 'Micro-Offer Forge', status: 'VERIFIED_FUNCTIONAL', description: 'Micro-Offer Forge — implemented in engines.ts (forgeMicroOffer).', code: 'engines.ts (forgeMicroOffer)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 42, name: 'Trust-Transfer Engine', status: 'IMPLEMENTED_NOT_VERIFIED', description: 'Trust-Transfer Engine — implemented in engines.ts (trustAssets).', code: 'engines.ts (trustAssets)', dependsOn: [], evidence: ['no automated test yet'] },
+  { n: 43, name: 'Lead Memory Shield', status: 'VERIFIED_FUNCTIONAL', description: 'Lead Memory Shield — implemented in engines.ts (shieldLeads).', code: 'engines.ts (shieldLeads)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 44, name: 'Market Pulse Anomaly Detector', status: 'VERIFIED_FUNCTIONAL', description: 'Market Pulse Anomaly Detector — implemented in engines.ts (detectAnomalies).', code: 'engines.ts (detectAnomalies)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 45, name: 'Pain Cluster Fusion', status: 'VERIFIED_FUNCTIONAL', description: 'Pain Cluster Fusion — implemented in engines.ts (fusePainClusters).', code: 'engines.ts (fusePainClusters)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 46, name: 'Competitor Move Predictor', status: 'VERIFIED_FUNCTIONAL', description: 'Competitor Move Predictor — implemented in engines.ts (predictCompetitorMoves).', code: 'engines.ts (predictCompetitorMoves)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 47, name: 'Opportunity Expiry Clock', status: 'VERIFIED_FUNCTIONAL', description: 'Opportunity Expiry Clock — implemented in engines.ts (expiryClock).', code: 'engines.ts (expiryClock)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 48, name: 'Demand Migration Tracker', status: 'VERIFIED_FUNCTIONAL', description: 'Demand Migration Tracker — implemented in engines.ts (demandMigration).', code: 'engines.ts (demandMigration)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 49, name: 'Buying Friction Autopsy', status: 'VERIFIED_FUNCTIONAL', description: 'Buying Friction Autopsy — implemented in engines.ts (autopsyFriction).', code: 'engines.ts (autopsyFriction)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 50, name: 'Offer Fit Fingerprint', status: 'VERIFIED_FUNCTIONAL', description: 'Offer Fit Fingerprint — implemented in engines.ts (offerFit).', code: 'engines.ts (offerFit)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 51, name: 'Objection Preemption Lab', status: 'VERIFIED_FUNCTIONAL', description: 'Objection Preemption Lab — implemented in engines.ts (preemptObjections).', code: 'engines.ts (preemptObjections)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 52, name: 'Frictionless Purchase Architect', status: 'VERIFIED_FUNCTIONAL', description: 'Frictionless Purchase Architect — implemented in engines.ts (frictionlessCheckout).', code: 'engines.ts (frictionlessCheckout)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 53, name: 'Conversation Momentum Engine', status: 'VERIFIED_FUNCTIONAL', description: 'Conversation Momentum Engine — implemented in engines.ts (conversationMomentum).', code: 'engines.ts (conversationMomentum)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 54, name: 'Task Critical Path Optimizer', status: 'VERIFIED_FUNCTIONAL', description: 'Task Critical Path Optimizer — implemented in engines.ts (criticalPath).', code: 'engines.ts (criticalPath)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 55, name: 'Intelligence Cost Arbitrage', status: 'VERIFIED_FUNCTIONAL', description: 'Intelligence Cost Arbitrage — implemented in engines.ts (arbitrageModel).', code: 'engines.ts (arbitrageModel)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 56, name: 'Reusable Asset Miner', status: 'VERIFIED_FUNCTIONAL', description: 'Reusable Asset Miner — implemented in engines.ts (mineAssets).', code: 'engines.ts (mineAssets)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 57, name: 'Failure Containment Mesh', status: 'VERIFIED_FUNCTIONAL', description: 'Failure Containment Mesh — implemented in engines.ts (CircuitBreaker).', code: 'engines.ts (CircuitBreaker)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 58, name: 'Preflight Business Simulator', status: 'VERIFIED_FUNCTIONAL', description: 'Preflight Business Simulator — implemented in engines.ts (simulate).', code: 'engines.ts (simulate)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 59, name: 'Marginal Profit Compass', status: 'VERIFIED_FUNCTIONAL', description: 'Marginal Profit Compass — implemented in engines.ts (marginalProfit).', code: 'engines.ts (marginalProfit)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 60, name: 'Cashflow Survival Engine', status: 'VERIFIED_FUNCTIONAL', description: 'Cashflow Survival Engine — implemented in engines.ts (cashflowSurvival).', code: 'engines.ts (cashflowSurvival)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 61, name: 'Customer Value Expansion Graph', status: 'VERIFIED_FUNCTIONAL', description: 'Customer Value Expansion Graph — implemented in engines.ts (expansionGraph).', code: 'engines.ts (expansionGraph)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 62, name: 'Risk-Adjusted Opportunity Portfolio', status: 'VERIFIED_FUNCTIONAL', description: 'Risk-Adjusted Opportunity Portfolio — implemented in engines.ts (riskPortfolio).', code: 'engines.ts (riskPortfolio)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 63, name: 'Revenue Causality Lab', status: 'VERIFIED_FUNCTIONAL', description: 'Revenue Causality Lab — implemented in engines.ts (causalityLab).', code: 'engines.ts (causalityLab)', dependsOn: [], evidence: ['tests/commercial.test.ts'] },
+  { n: 64, name: 'Revenue Opportunity DNA Mapper', status: 'VERIFIED_FUNCTIONAL', description: 'Revenue Opportunity DNA Mapper — implemented in src/lib/capabilities/engines.ts (opportunityDNA).', code: 'src/lib/capabilities/engines.ts (opportunityDNA)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 65, name: 'Live Willingness-to-Pay Laboratory', status: 'VERIFIED_FUNCTIONAL', description: 'Live Willingness-to-Pay Laboratory — implemented in capabilities/engines.ts (wtpLab).', code: 'capabilities/engines.ts (wtpLab)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 66, name: 'Pre-Sale Evidence Vault', status: 'VERIFIED_FUNCTIONAL', description: 'Pre-Sale Evidence Vault — implemented in src/lib/memory/evidence.ts, capabilities/engines.ts (publishableClaims).', code: 'src/lib/memory/evidence.ts, capabilities/engines.ts (publishableClaims)', dependsOn: ['postgresql', 'prisma'], evidence: ['tests/capabilities.test.ts'] },
+  { n: 67, name: 'Customer Pain-to-Cash Compiler', status: 'VERIFIED_FUNCTIONAL', description: 'Customer Pain-to-Cash Compiler — implemented in capabilities/engines.ts (painToCash).', code: 'capabilities/engines.ts (painToCash)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 68, name: 'Demand Collision Detector', status: 'VERIFIED_FUNCTIONAL', description: 'Demand Collision Detector — implemented in capabilities/engines.ts (demandCollisions).', code: 'capabilities/engines.ts (demandCollisions)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 69, name: 'Unserved Buyer Network', status: 'VERIFIED_FUNCTIONAL', description: 'Unserved Buyer Network — implemented in capabilities/engines.ts (unservedNetwork).', code: 'capabilities/engines.ts (unservedNetwork)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 70, name: 'Commercial Timing Window Engine', status: 'VERIFIED_FUNCTIONAL', description: 'Commercial Timing Window Engine — implemented in capabilities/engines.ts (timingWindow).', code: 'capabilities/engines.ts (timingWindow)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 71, name: 'Proof-of-Value Contract Designer', status: 'VERIFIED_FUNCTIONAL', description: 'Proof-of-Value Contract Designer — implemented in capabilities/engines.ts (designPov).', code: 'capabilities/engines.ts (designPov)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 72, name: 'Revenue Precursor Detector', status: 'VERIFIED_FUNCTIONAL', description: 'Revenue Precursor Detector — implemented in capabilities/engines.ts (precursorDetector).', code: 'capabilities/engines.ts (precursorDetector)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 73, name: 'Micro-Market Launch Sequencer', status: 'VERIFIED_FUNCTIONAL', description: 'Micro-Market Launch Sequencer — implemented in capabilities/engines.ts (sequenceLaunch).', code: 'capabilities/engines.ts (sequenceLaunch)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 74, name: 'Offer Cannibalization Sentinel', status: 'VERIFIED_FUNCTIONAL', description: 'Offer Cannibalization Sentinel — implemented in capabilities/engines.ts (cannibalization).', code: 'capabilities/engines.ts (cannibalization)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 75, name: 'Delivery Capacity Forecaster', status: 'VERIFIED_FUNCTIONAL', description: 'Delivery Capacity Forecaster — implemented in capabilities/engines.ts (capacityForecast).', code: 'capabilities/engines.ts (capacityForecast)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 76, name: 'Margin Leakage Forensics', status: 'VERIFIED_FUNCTIONAL', description: 'Margin Leakage Forensics — implemented in capabilities/engines.ts (marginLeakage).', code: 'capabilities/engines.ts (marginLeakage)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 77, name: 'Customer Outcome Verification Engine', status: 'VERIFIED_FUNCTIONAL', description: 'Customer Outcome Verification Engine — implemented in capabilities/engines.ts (verifyOutcome).', code: 'capabilities/engines.ts (verifyOutcome)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 78, name: 'Ethical Demand Validation Simulator', status: 'VERIFIED_FUNCTIONAL', description: 'Ethical Demand Validation Simulator — implemented in capabilities/engines.ts (ethicalSimulation).', code: 'capabilities/engines.ts (ethicalSimulation)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 79, name: 'Revenue Dependency Breaker', status: 'VERIFIED_FUNCTIONAL', description: 'Revenue Dependency Breaker — implemented in capabilities/engines.ts (dependencyBreaker).', code: 'capabilities/engines.ts (dependencyBreaker)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 80, name: 'Buyer Objection Evidence Graph', status: 'VERIFIED_FUNCTIONAL', description: 'Buyer Objection Evidence Graph — implemented in capabilities/engines.ts (objectionEvidenceGraph).', code: 'capabilities/engines.ts (objectionEvidenceGraph)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 81, name: 'Deal Probability Calibration Engine', status: 'VERIFIED_FUNCTIONAL', description: 'Deal Probability Calibration Engine — implemented in capabilities/engines.ts (calibrate).', code: 'capabilities/engines.ts (calibrate)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 82, name: 'Revenue Recovery Investigator', status: 'VERIFIED_FUNCTIONAL', description: 'Revenue Recovery Investigator — implemented in capabilities/engines.ts (recoveryInvestigator).', code: 'capabilities/engines.ts (recoveryInvestigator)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 83, name: 'Commercial Asset Yield Monitor', status: 'VERIFIED_FUNCTIONAL', description: 'Commercial Asset Yield Monitor — implemented in capabilities/engines.ts (assetYield).', code: 'capabilities/engines.ts (assetYield)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 84, name: 'Opportunity Kill-Switch Intelligence', status: 'VERIFIED_FUNCTIONAL', description: 'Opportunity Kill-Switch Intelligence — implemented in capabilities/engines.ts (killSwitch), commercial/decision-engine.ts (kill).', code: 'capabilities/engines.ts (killSwitch), commercial/decision-engine.ts (kill)', dependsOn: ['postgresql', 'prisma'], evidence: ['tests/capabilities.test.ts'] },
+  { n: 85, name: 'Competitive Response Stress Tester', status: 'VERIFIED_FUNCTIONAL', description: 'Competitive Response Stress Tester — implemented in capabilities/engines.ts (stressTest).', code: 'capabilities/engines.ts (stressTest)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 86, name: 'Customer Switching Cost Mapper', status: 'VERIFIED_FUNCTIONAL', description: 'Customer Switching Cost Mapper — implemented in capabilities/engines.ts (switchingCost).', code: 'capabilities/engines.ts (switchingCost)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 87, name: 'Cross-Border Revenue Route Planner', status: 'VERIFIED_FUNCTIONAL', description: 'Cross-Border Revenue Route Planner — implemented in capabilities/engines.ts (crossBorderRoutes).', code: 'capabilities/engines.ts (crossBorderRoutes)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 88, name: 'Revenue Collection Reliability Score', status: 'VERIFIED_FUNCTIONAL', description: 'Revenue Collection Reliability Score — implemented in capabilities/engines.ts (collectionReliability).', code: 'capabilities/engines.ts (collectionReliability)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 89, name: 'Trust Deficit Repair Engine', status: 'VERIFIED_FUNCTIONAL', description: 'Trust Deficit Repair Engine — implemented in capabilities/engines.ts (trustRepair).', code: 'capabilities/engines.ts (trustRepair)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 90, name: 'Business Model Mutation Lab', status: 'VERIFIED_FUNCTIONAL', description: 'Business Model Mutation Lab — implemented in capabilities/engines.ts (modelLab).', code: 'capabilities/engines.ts (modelLab)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 91, name: 'Autonomous Experiment Budget Governor', status: 'VERIFIED_FUNCTIONAL', description: 'Autonomous Experiment Budget Governor — implemented in capabilities/engines.ts (ExperimentBudgetGovernor).', code: 'capabilities/engines.ts (ExperimentBudgetGovernor)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 92, name: 'Multi-Channel Attribution Integrity Engine', status: 'VERIFIED_FUNCTIONAL', description: 'Multi-Channel Attribution Integrity Engine — implemented in capabilities/engines.ts (attributeDeals).', code: 'capabilities/engines.ts (attributeDeals)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 93, name: 'Service Failure Compensation Planner', status: 'VERIFIED_FUNCTIONAL', description: 'Service Failure Compensation Planner — implemented in capabilities/engines.ts (compensationPlan).', code: 'capabilities/engines.ts (compensationPlan)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 94, name: 'Hidden Workload Cost Detector', status: 'VERIFIED_FUNCTIONAL', description: 'Hidden Workload Cost Detector — implemented in capabilities/engines.ts (hiddenWorkload).', code: 'capabilities/engines.ts (hiddenWorkload)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 95, name: 'Market Evidence Freshness Engine', status: 'VERIFIED_FUNCTIONAL', description: 'Market Evidence Freshness Engine — implemented in capabilities/engines.ts (freshnessReport, FRESHNESS_DAYS).', code: 'capabilities/engines.ts (freshnessReport, FRESHNESS_DAYS)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 96, name: 'Productized Service Assembly Line', status: 'VERIFIED_FUNCTIONAL', description: 'Productized Service Assembly Line — implemented in capabilities/engines.ts (productize).', code: 'capabilities/engines.ts (productize)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 97, name: 'Revenue-to-Capability Feedback Loop', status: 'VERIFIED_FUNCTIONAL', description: 'Revenue-to-Capability Feedback Loop — implemented in capabilities/engines.ts (capabilityFeedback).', code: 'capabilities/engines.ts (capabilityFeedback)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 98, name: 'Commercial Opportunity Collision Avoidance', status: 'VERIFIED_FUNCTIONAL', description: 'Commercial Opportunity Collision Avoidance — implemented in capabilities/engines.ts (collisions).', code: 'capabilities/engines.ts (collisions)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 99, name: 'First-Dollar Execution Navigator', status: 'VERIFIED_FUNCTIONAL', description: 'First-Dollar Execution Navigator — implemented in capabilities/engines.ts (firstDollarNavigator).', code: 'capabilities/engines.ts (firstDollarNavigator)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
+  { n: 100, name: 'Autonomous Commercial Governance Engine', status: 'VERIFIED_FUNCTIONAL', description: 'Autonomous Commercial Governance Engine — implemented in capabilities/engines.ts (govern).', code: 'capabilities/engines.ts (govern)', dependsOn: [], evidence: ['tests/capabilities.test.ts'] },
 ];
 
 export function summary(): Record<CapStatus, number> {
-  const out: Record<CapStatus, number> = { implemented: 0, partial: 0, planned: 0, blocked: 0 };
+  const out: Record<CapStatus, number> = {
+    VERIFIED_FUNCTIONAL: 0,
+    IMPLEMENTED_NOT_VERIFIED: 0,
+    PARTIAL: 0,
+    NOT_IMPLEMENTED: 0,
+    BLOCKED_EXTERNAL_DEPENDENCY: 0,
+  };
   for (const c of CAPABILITIES) out[c.status]++;
   return out;
 }

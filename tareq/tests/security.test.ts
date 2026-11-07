@@ -82,6 +82,20 @@ test('tampering with a recorded entry changes its hash', () => {
   assert.notEqual(recorded, tampered);
 });
 
+test('audit hash is independent of metadata key order (jsonb reorders keys)', () => {
+  const t = '2026-01-01T00:00:00.000Z';
+  const a = computeHash(null, { actorType: 'agent', action: 'x', metadata: { b: 1, a: 2 } }, t);
+  const b = computeHash(null, { actorType: 'agent', action: 'x', metadata: { a: 2, b: 1 } }, t);
+  assert.equal(a, b);
+});
+
+test('audit hash still changes when nested metadata content changes', () => {
+  const t = '2026-01-01T00:00:00.000Z';
+  const a = computeHash(null, { actorType: 'agent', action: 'x', metadata: { a: 1, nested: { y: 1, x: 2 } } }, t);
+  const b = computeHash(null, { actorType: 'agent', action: 'x', metadata: { a: 1, nested: { x: 2, y: 9 } } }, t);
+  assert.notEqual(a, b);
+});
+
 // --- Cron --------------------------------------------------------------------
 test('cron matches specific minute/hour and rejects others', () => {
   const d = new Date('2026-03-01T06:00:00Z');

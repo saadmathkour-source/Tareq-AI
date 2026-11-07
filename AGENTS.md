@@ -51,7 +51,7 @@ Always run `npm run typecheck` and `npm run build` before pushing.
 autonomous commercial agent. It does not share VoiceProxy's `package.json`,
 build, database or processes.
 
-- Run its own tooling from inside `tareq/`: `npm install`, `npm test` (107 tests),
+- Run its own tooling from inside `tareq/`: `npm install`, `npm test` (132 tests),
   `npm run db:push`, `npm run bootstrap`, `npm run api`, `npm run worker`,
   `npm run acceptance` (commercial end-to-end, 16 checks).
 - Owner dashboard is served by the API at `/` (`tareq/src/app/dashboard.html`),

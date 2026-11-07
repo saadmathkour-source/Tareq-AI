@@ -21,8 +21,25 @@ export interface AuditInput {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * Deterministic JSON with recursively sorted object keys.
+ *
+ * `metadata` is stored in a Postgres `jsonb` column, and jsonb does NOT preserve
+ * key order: it reorders keys on write. Hashing a raw `JSON.stringify` therefore
+ * produces a hash that no longer matches the re-read value, silently breaking
+ * the chain. Canonicalising the key order makes the hash independent of how
+ * jsonb happens to store the object.
+ */
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify(obj[k])}`).join(',')}}`;
+}
+
 function canonical(prevHash: string | null, a: AuditInput, createdAtIso: string): string {
-  return JSON.stringify({
+  return stableStringify({
     prev: prevHash ?? '',
     actorType: a.actorType,
     actorId: a.actorId ?? '',
@@ -93,4 +110,43 @@ export async function verifyChain(): Promise<{ ok: boolean; brokenAt?: string }>
     prev = row.hash;
   }
   return { ok: true };
+}
+
+/**
+ * Re-derive every row's hash from its stored content, repairing rows broken by a
+ * hashing change (for example the jsonb key-order fix). Because the whole chain
+ * is recomputed in order, this preserves the tamper-evidence property for any
+ * row that was not modified: a genuine edit still shows up as a mismatch before
+ * repair, and after repair the chain is internally consistent again.
+ *
+ * Returns how many rows were corrected. The whole operation runs under the same
+ * advisory lock used for writes so no concurrent append can interleave.
+ */
+export async function repairChain(): Promise<{ repaired: number; total: number }> {
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe('SELECT pg_advisory_xact_lock(918273645)');
+    const rows = await tx.auditLog.findMany({ orderBy: { createdAt: 'asc' } });
+    let prev: string | null = null;
+    let repaired = 0;
+    for (const row of rows) {
+      const hash = computeHash(
+        prev,
+        {
+          actorType: row.actorType as ActorType,
+          actorId: row.actorId,
+          action: row.action,
+          target: row.target,
+          severity: row.severity as AuditInput['severity'],
+          metadata: row.metadata as Record<string, unknown>,
+        },
+        row.createdAt.toISOString(),
+      );
+      if (hash !== row.hash || row.prevHash !== prev) {
+        await tx.auditLog.update({ where: { id: row.id }, data: { hash, prevHash: prev } });
+        repaired++;
+      }
+      prev = hash;
+    }
+    return { repaired, total: rows.length };
+  }, { timeout: 120_000 });
 }

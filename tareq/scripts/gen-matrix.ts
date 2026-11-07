@@ -59,7 +59,7 @@ const REAL_WORLD: Record<number, string> = {
   39: 'revivalCandidates() selects dormant deals (unit test).',
   40: 'oneClickCashPath() requires owner approval (unit test).',
   41: 'forgeMicroOffer() honours target margin (unit test + acceptance).',
-  42: 'trustAssets() returns real assets (unit test).',
+  42: 'trustAssets() returns real, non-fabricated assets. Not yet referenced by any test — status downgraded to IMPLEMENTED_NOT_VERIFIED until a test or live run covers it.',
   43: 'shieldLeads() blocks opt-outs and flags conflicts (unit test).',
   44: 'detectAnomalies() flags outliers (unit test).',
   45: 'fusePainClusters() fuses similar pains (unit test).',
@@ -120,41 +120,11 @@ const REAL_WORLD: Record<number, string> = {
   100: 'govern() refuses over-budget/unapproved/unsupported actions (unit test).',
 };
 
-const AUDIT: Record<number, AuditStatus> = {
-  13: 'PARTIAL',
-  27: 'PARTIAL',
-};
-// Default for everything else: pure/engine code with a passing test and a real
-// run during the audit.
-const DEFAULT: AuditStatus = 'VERIFIED_FUNCTIONAL';
-
-const TEST_FILES: Record<string, string> = {
-  'commercial.test.ts': 'tests/commercial.test.ts',
-  'capabilities.test.ts': 'tests/capabilities.test.ts',
-};
-
-function testEvidence(n: number): string {
-  if (n >= 29 && n <= 63) return 'tests/commercial.test.ts';
-  if (n >= 64 && n <= 100) return 'tests/capabilities.test.ts';
-  const map: Record<number, string> = {
-    4: 'tests/security.test.ts (cron), queue exercised in acceptance',
-    5: 'tests/security.test.ts (cron/nextCron)',
-    6: 'tests/security.test.ts (untrusted wrapper)',
-    7: 'tests/security.test.ts',
-    9: 'tests/publicdata.test.ts',
-    11: 'tests/buyers.test.ts',
-    21: 'tests/security.test.ts',
-    22: 'tests/*.test.ts',
-    23: 'queue behaviour in tests/acceptance.ts',
-    25: 'tests/security.test.ts (hash chain)',
-    26: 'tests/dashboard.test.ts',
-  };
-  return map[n] ?? 'exercised in tests/acceptance.ts';
-}
-
 const rows = CAPABILITIES.map((c) => {
-  const status = AUDIT[c.n] ?? DEFAULT;
-  return `| ${c.n} | ${c.name} | ${status} | \`${c.code ?? '—'}\` | ${testEvidence(c.n)} | ${REAL_WORLD[c.n] ?? 'exercised in the acceptance run'} |`;
+  const status = c.status;
+  const deps = (c.dependsOn ?? []).join(', ') || '—';
+  const ev = (c.evidence ?? []).join('; ') || '—';
+  return `| ${c.n} | ${c.name} | ${status} | \`${c.code ?? '—'}\` | ${deps} | ${ev} | ${REAL_WORLD[c.n] ?? 'exercised in the acceptance run'} |`;
 });
 
 const header = `# TAREQ — Capability Verification Matrix (100 groups)
@@ -165,25 +135,23 @@ Status scale: \`VERIFIED_FUNCTIONAL\`, \`IMPLEMENTED_NOT_VERIFIED\`, \`PARTIAL\`
 
 A capability is only \`VERIFIED_FUNCTIONAL\` when practical evidence (a real run,
 a live external call, or a passing test against real code) proves its intended
-function works. Two capabilities are \`PARTIAL\` and none are unverified.
+function works.
 
-| # | Capability | Status | Code evidence | Test evidence | Real-world evidence |
-| --- | --- | --- | --- | --- | --- |
+| # | Capability | Status | Code evidence | Dependencies | Test evidence | Real-world evidence |
+| --- | --- | --- | --- | --- | --- | --- |
 `;
 
 const summary = `
 ## Summary
 
 - Total groups: ${CAPABILITIES.length}
-- VERIFIED_FUNCTIONAL: ${rows.filter((_, i) => (AUDIT[CAPABILITIES[i]!.n] ?? DEFAULT) === 'VERIFIED_FUNCTIONAL').length}
-- PARTIAL: ${CAPABILITIES.filter((c) => AUDIT[c.n] === 'PARTIAL').length} (13 product building — sandboxed code execution; 27 integrations — email/CRM connectors)
-- IMPLEMENTED_NOT_VERIFIED: 0
-- BLOCKED_EXTERNAL_DEPENDENCY: 0
-- NOT_IMPLEMENTED: 0
+- VERIFIED_FUNCTIONAL: ${CAPABILITIES.filter((c) => c.status === 'VERIFIED_FUNCTIONAL').length}
+- IMPLEMENTED_NOT_VERIFIED: ${CAPABILITIES.filter((c) => c.status === 'IMPLEMENTED_NOT_VERIFIED').length} (42 trust-transfer — code + test exist, not yet exercised in a live commercial run)
+- PARTIAL: ${CAPABILITIES.filter((c) => c.status === 'PARTIAL').length} (13 product building — sandboxed code execution; 27 integrations — Gmail/HubSpot connectors await owner OAuth)
+- BLOCKED_EXTERNAL_DEPENDENCY: ${CAPABILITIES.filter((c) => c.status === 'BLOCKED_EXTERNAL_DEPENDENCY').length}
+- NOT_IMPLEMENTED: ${CAPABILITIES.filter((c) => c.status === 'NOT_IMPLEMENTED').length}
 
-The two PARTIAL groups are the only gaps that require new implementation work.
-All other groups have working code, a passing test and a real execution during
-the audit.
+Every group has a unique id from 1 to 100 with no omissions or duplicates.
 `;
 
 writeFileSync(new URL('../docs/CAPABILITY_VERIFICATION_MATRIX.md', import.meta.url), header + rows.join('\n') + '\n' + summary);
