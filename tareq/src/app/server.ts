@@ -27,7 +27,7 @@ import { plan, planFromCommand } from '../lib/planner/index.ts';
 import { runMission } from '../lib/commercial/mission.ts';
 import { status as gmailStatus } from '../lib/integrations/gmail.ts';
 import { status as hubspotStatus } from '../lib/integrations/hubspot.ts';
-import { status as stripeStatus, handleWebhook } from '../lib/integrations/stripe.ts';
+import { status as stripeStatus, handleWebhook, createTestPaymentLink } from '../lib/integrations/stripe.ts';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -302,6 +302,29 @@ route('POST', '/mission', true, async (_req, res, owner, body) => {
   } catch (err) {
     json(res, 400, { error: (err as Error).message });
   }
+});
+
+/**
+ * Create a real, payable Stripe Checkout link for an offer. This only *creates*
+ * a link; no money is recorded here. Revenue is recorded solely by the
+ * signature-verified webhook at /webhooks/stripe.
+ */
+route('POST', '/payments/link', true, async (_req, res, owner, body) => {
+  const amountUsd = Number(body['amountUsd']);
+  const productName = String(body['productName'] ?? '').trim();
+  if (!Number.isFinite(amountUsd) || amountUsd <= 0) return json(res, 400, { error: 'amountUsd must be a positive number' });
+  if (!productName) return json(res, 400, { error: 'productName is required' });
+  const base = String(body['baseUrl'] ?? `http://localhost:${PORT}`);
+  const result = await createTestPaymentLink({
+    amountUsd,
+    productName,
+    successUrl: String(body['successUrl'] ?? `${base}/?payment=success`),
+    cancelUrl: String(body['cancelUrl'] ?? `${base}/?payment=cancelled`),
+    clientReferenceId: body['dealId'] ? String(body['dealId']) : undefined,
+  });
+  if (!result.ok) return json(res, 400, { ok: false, error: result.reason });
+  await audit({ actorType: 'owner', actorId: owner?.id, action: 'payment.link_created', target: result.id, severity: 'info', metadata: { amountUsd } });
+  json(res, 200, { ok: true, url: result.url, id: result.id, mode: result.mode });
 });
 
 const server = createServer(async (req, res) => {
