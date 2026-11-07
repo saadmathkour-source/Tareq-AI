@@ -20,6 +20,10 @@
   credentials. Stripe includes signature-verified, idempotent webhook handling
   (`POST /webhooks/stripe`) that records revenue only after the HMAC checks out.
 - `GET /integrations` and a dashboard Integrations panel.
+- `POST /payments/link` — owner-authenticated endpoint that creates a real,
+  payable Stripe Checkout link (live or test by key prefix). Verified live: a
+  link was created and immediately expired, so nothing is left dangling. No
+  revenue is recorded here; only the signature-verified webhook does that.
 - Capability index upgraded to the five-value status vocabulary with
   description, dependencies and evidence per group; `/capabilities` summary and
   the dashboard gained status filtering and search.

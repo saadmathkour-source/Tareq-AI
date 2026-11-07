@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { status as gmailStatus } from '../src/lib/integrations/gmail.ts';
 import { status as hubspotStatus } from '../src/lib/integrations/hubspot.ts';
-import { status as stripeStatus, handleWebhook } from '../src/lib/integrations/stripe.ts';
+import { status as stripeStatus, handleWebhook, createTestPaymentLink } from '../src/lib/integrations/stripe.ts';
 
 /**
  * Integration adapters must be honest: with no credentials they report
@@ -85,5 +85,14 @@ test('stripe webhook rejects a malformed signature header', async () => {
   const r = await handleWebhook('{}', 'garbage');
   assert.equal(r.handled, false);
   assert.match(String(r.reason), /malformed/);
+  process.env = saved;
+});
+
+test('stripe payment link refuses to act when the key is missing', async () => {
+  const saved = { ...process.env };
+  delete process.env.STRIPE_SECRET_KEY;
+  const r = await createTestPaymentLink({ amountUsd: 10, productName: 'x', successUrl: 'https://x', cancelUrl: 'https://y' });
+  assert.equal(r.ok, false);
+  assert.match(String(r.reason), /not configured/);
   process.env = saved;
 });
