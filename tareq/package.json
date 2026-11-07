@@ -12,12 +12,13 @@
     "db:generate": "prisma generate",
     "db:format": "prisma format",
     "typecheck": "tsc --noEmit",
-    "build": "prisma generate && tsc -p tsconfig.build.json",
+    "build": "prisma generate && tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
     "test": "node --test --experimental-strip-types tests/*.test.ts",
     "worker": "node --experimental-strip-types worker/main.ts",
     "api": "node --experimental-strip-types src/app/server.ts",
     "seed:owner": "node --experimental-strip-types scripts/seed-owner.ts",
-    "bootstrap": "node --experimental-strip-types scripts/bootstrap.ts"
+    "bootstrap": "node --experimental-strip-types scripts/bootstrap.ts",
+    "acceptance": "node --experimental-strip-types tests/acceptance.ts"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

@@ -38,7 +38,8 @@ TAREQ is designed so that the safety rules are mechanisms, not promises:
 ## Layout
 
 ```
-src/app/server.ts            Owner API (auth, mode, approvals, tasks, finance, health)
+src/app/server.ts            Owner API + serves the dashboard at /
+src/app/dashboard.html       Bilingual (AR/EN) owner dashboard
 src/lib/core/                logger, db, errors, audit, events, orchestrator, subagents
 src/lib/queue/               durable task queue + scheduler
 src/lib/security/            permissions, budget governor, owner auth
@@ -46,10 +47,13 @@ src/lib/providers/           model router with cost tracking and fallback
 src/lib/memory/              memory + evidence vault
 src/lib/commercial/          decision engine and commercial capabilities
 src/lib/capabilities/        capabilities 64–100 + acceptance registry
+src/lib/tools/               tool registry, research tools, built-in registration
+src/lib/integrations/        optional connectors (Telegram, public data)
 src/lib/finance/             ledger and acquisition metrics
 worker/main.ts               worker: claims tasks, dispatches handlers
 prisma/schema.prisma         the `tareq` schema
-tests/                       88 tests (commercial, capabilities, security)
+tests/                       98 tests (commercial, capabilities, security, publicdata, dashboard)
+docs/                        architecture, security, deployment, 100-feature matrix
 ```
 
 ## Getting started
@@ -59,13 +63,13 @@ cp .env.example .env          # fill in real values; never commit .env
 npm install
 npm run db:push               # create the `tareq` schema in Postgres
 npm run bootstrap             # seed sub-agents, schedules and the owner account
-npm test                      # 88 tests
-npm run api                   # start the owner API on PORT (default 3300)
+npm test                      # 98 tests
+npm run api                   # start the owner API + dashboard on PORT (default 3300)
 npm run worker                # start a worker
 ```
 
-`GET /health` is public. Every other route needs an owner session obtained from
-`POST /auth/login`.
+Open `http://localhost:3300/` for the dashboard. `GET /health` is public. Every
+other route needs an owner session obtained from `POST /auth/login`.
 
 ## Deploying to Railway
 

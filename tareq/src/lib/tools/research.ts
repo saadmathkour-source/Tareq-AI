@@ -1,6 +1,7 @@
 import { ValidationError } from '../core/errors.ts';
 import { recordClaim } from '../memory/evidence.ts';
 import { remember } from '../memory/index.ts';
+import { scanDemand, type DemandScan } from '../integrations/publicdata.ts';
 
 /**
  * Research tool.
@@ -97,4 +98,25 @@ export async function researchSource(url: string, statement: string, validForDay
     expiresAt: new Date(Date.now() + validForDays * 86_400_000),
   });
   return { evidenceId, title: result.title, chars: result.text.length };
+}
+
+/**
+ * Scan public demand signals for a topic and persist them as memory.
+ *
+ * The result is stored as a hypothesis with a short validity window, because
+ * discussion volume is not proof of willingness to pay (group 31 proof ladder).
+ * Nothing here is publishable evidence until a stronger proof step runs.
+ */
+export async function researchDemand(topic: string, opts: { limit?: number } = {}): Promise<DemandScan> {
+  const scan = await scanDemand(topic, opts);
+  await remember({
+    kind: 'MARKET_EVIDENCE',
+    key: `demand:${topic}`,
+    content: JSON.stringify({ volume: scan.volume, recentCount: scan.recentCount, avgPoints: scan.avgPoints, interpretation: scan.interpretation }),
+    source: 'public-data',
+    epistemic: 'hypothesis',
+    confidence: scan.confidence,
+    expiresAt: new Date(Date.now() + 14 * 86_400_000),
+  });
+  return scan;
 }

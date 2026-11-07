@@ -10,6 +10,7 @@
  * admin commands, and the agent's own tokens cannot call these endpoints.
  */
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { readFileSync } from 'node:fs';
 import { env } from '../lib/env.ts';
 import { logger } from '../lib/core/logger.ts';
 import { authenticate, login, logout, revokeAllSessions, type OwnerIdentity } from '../lib/security/owner-auth.ts';
@@ -22,8 +23,24 @@ import { prisma } from '../lib/core/db.ts';
 import { verifyChain } from '../lib/core/audit.ts';
 import { audit } from '../lib/core/audit.ts';
 import { plan } from '../lib/planner/index.ts';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
 
 const PORT = Number(process.env.PORT ?? 3300);
+
+/**
+ * The dashboard is a single static HTML file served by this same server, so the
+ * owner UI has no separate build step and no second deployment. It is public
+ * HTML (no data), and every datum it shows comes from an authenticated API call.
+ */
+const HERE = dirname(fileURLToPath(import.meta.url));
+let dashboardHtml: string | null = null;
+function dashboard(): string {
+  if (dashboardHtml === null) {
+    dashboardHtml = readFileSync(join(HERE, 'dashboard.html'), 'utf8');
+  }
+  return dashboardHtml;
+}
 
 function json(res: ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body);
@@ -171,6 +188,15 @@ route('POST', '/plan', true, async (_req, res, _owner, body) => {
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
+
+    // Owner dashboard (static shell; data comes from authenticated API calls).
+    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/dashboard')) {
+      const html = dashboard();
+      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(html) });
+      res.end(html);
+      return;
+    }
+
     const match = routes.find((r) => r.method === req.method && r.path === url.pathname);
     if (!match) return json(res, 404, { error: 'not found' });
 
