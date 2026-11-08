@@ -192,3 +192,30 @@ build, database or processes.
 - Secrets live only in gitignored `.env` files. Nothing secret is committed; a
   `git grep` for the password/publishable-key substrings over tracked files and
   the pushed history is clean.
+
+## 2026-11-08 RECON — "VoiceProxy AI" LIVE production topology (read-only)
+
+The production directive targets a system that is **not this repository**. Verified
+topology, so future sessions do not re-derive it:
+
+- **voiceproxyai.com is a Vite + React SPA on Railway** (`server: railway-hikari`),
+  title "VoiceProxy AI — Autonomous AI Agents for Bill Negotiation & Wealth
+  Optimization". It serves the landing HTML for *every* path, including
+  `/api/*`, so this repo's Next.js API routes are NOT what is live there.
+- Its backend is a **different Supabase project** (`tfhtxfpaoqyssyuaexnn`,
+  not in the accessible account) with Edge Functions. Tables seen in the bundle:
+  `calls, call_transcripts, ai_personas, user_personas, ledger_entries,
+  notification_outbox, locale_cache`. Edge fn: `telegram-webhook`.
+- The live Stripe webhook is the Edge Function
+  `.../functions/v1/stripe-billing/webhook`, NOT this repo's
+  `src/app/api/stripe/webhook/route.ts`.
+- Access gaps: the injected `GITHUB_TOKEN` authenticates as `saadmathkour-source`
+  and can see only `saadmathkour-source/Tareq-AI`; the directive's repo
+  `tariqmathkour5-ux/VoiceProxy-Ultimate-AI` does not exist (404) and the user
+  `tariqmathkour5-ux` does not exist. `SUPABASE_ACCESS_TOKEN` sees only the
+  "Tareq AI" project `ljejjdvkgohknbnyguzt`, not the live `tfhtx...` project.
+- `tareq/` (TAREQ AI) is a **separate** app (own Dockerfile, own Supabase project
+  `ljejj...`); it is not connected to voiceproxyai.com.
+- This repo's root Next.js app is a **scaffold**: `src/app/api/stripe/webhook`
+  verifies the signature but does nothing on `checkout.session.completed` (logs
+  only), and `STRIPE_PRO_PRICE_ID` is unset so `/api/stripe/checkout` 400s.
