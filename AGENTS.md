@@ -171,3 +171,24 @@ build, database or processes.
 - Two Railway services build this repo (`precious-achievement`,
   `bountiful-forgiveness`); the `7190db4` deploy succeeded on one and failed on
   the other. The domain owner is the service that succeeded.
+
+## 2026-11-08 DB recovery — RESOLVED locally
+
+- Database connectivity is restored using the **Supavisor pooler**:
+  `DATABASE_URL` = pooler host `aws-0-ap-south-1.pooler.supabase.com:6543` with
+  `?pgbouncer=true&connection_limit=1`; `DIRECT_URL` = same pooler host on
+  `:5432`. Both authenticate as `postgres.ljejjdvkgohknbnyguzt`.
+- The owner-supplied `DIRECT_URL` password was wrong; the working password is
+  the one in `DATABASE_URL`. Do not assume the two URLs share a password —
+  verify each independently.
+- `npx prisma db push` now succeeds (schema in sync, including the new
+  `TEST_TRANSACTION` / `PAYMENT_FAILED` ledger kinds) and `prisma generate`
+  completes. Full suite is **174/174 green** against the live database, and a
+  local `node src/app/server.ts` returns `/health` `{ok:true, database:{ok:true}}`.
+- STILL WRONG: the platform-injected `$DATABASE_URL` secret still carries the
+  old tenant `postgres.1jejjdvkgohknbnyguzt` and no query params. The owner must
+  re-save that secret with the pooler URL + correct tenant, or Railway will keep
+  using the unreachable direct host `db.<ref>.supabase.co:5432`.
+- Secrets live only in gitignored `.env` files. Nothing secret is committed; a
+  `git grep` for the password/publishable-key substrings over tracked files and
+  the pushed history is clean.
