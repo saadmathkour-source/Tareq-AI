@@ -108,6 +108,10 @@ export async function claimNext(workerId: string, staleAfterMs = 5 * 60_000): Pr
       WHERE t.status IN ('PENDING', 'QUEUED', 'RETRYING')
         AND t.run_at <= now()
         AND (t.locked_at IS NULL OR t.locked_at < $1)
+        AND NOT EXISTS (
+          SELECT 1 FROM tareq.tasks d
+          WHERE d.id::text = ANY(t.depends_on) AND d.status <> 'SUCCEEDED'
+        )
       ORDER BY
         CASE t.priority
           WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'NORMAL' THEN 2 ELSE 3 END,
@@ -191,6 +195,22 @@ export async function fail(taskId: string, error: string, opts: { retryable?: bo
     });
     await emit('task.dead', { taskId, kind: task.kind, error });
     logger.error('task dead-lettered', { taskId, kind: task.kind });
+    // A dead task can never satisfy its dependents, so they would wait forever.
+    // Dead-letter them too, with a clear reason, instead of leaving them stuck.
+    const dependents = await prisma.task.findMany({
+      where: { status: { in: ['PENDING', 'QUEUED', 'RETRYING'] }, dependsOn: { has: taskId } },
+      select: { id: true, kind: true, payload: true },
+    });
+    for (const d of dependents) {
+      const reason = `dependency failed: ${task.kind} (${taskId})`;
+      await prisma.task.update({
+        where: { id: d.id },
+        data: { status: 'DEAD', error: reason, finishedAt: new Date(), lockedBy: null, lockedAt: null },
+      });
+      await prisma.deadLetter.create({ data: { taskId: d.id, kind: d.kind, payload: d.payload as never, error: reason } });
+      await emit('task.dead', { taskId: d.id, kind: d.kind, error: reason });
+      logger.error('task dead-lettered (blocked dependency)', { taskId: d.id, kind: d.kind, blockedBy: task.kind });
+    }
   }
 }
 

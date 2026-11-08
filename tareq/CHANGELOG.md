@@ -2,7 +2,31 @@
 
 ## Unreleased — Autonomous Agent Activation & Complete Owner Command Center (2026-11-07)
 
+### Fixed
+- **The agent could not do any work in production.** Railway ran only the API
+  (`npm run api`); the durable worker loop that executes tasks never ran, so every
+  task enqueued by `/plan` and `/mission` stayed PENDING forever. The API now
+  hosts the worker in-process by default (`TAREQ_EMBEDDED_WORKER`, on unless set
+  to `0`), with the handler registry shared between both entrypoints so they can
+  never drift.
+- **Queue head-of-line deadlock.** `claimNext` claimed the single oldest task,
+  released it when its dependency was unmet, then immediately re-claimed the same
+  task — so one blocked task at the head stopped all work. Unmet-dependency tasks
+  are now excluded in the claim query, so ready work is always claimed.
+- **Dead tasks stranded their dependents.** A dead-lettered task can never
+  satisfy its children, so they waited forever. Dependents are now dead-lettered
+  with a `dependency failed` reason.
+- **`plan` parent tasks were dead-lettered.** The planner enqueues a `plan`
+  grouping task per command, but no handler existed for it, so every plan showed
+  as failed. Added the handler.
+- Daily cron schedules only fired at process start. The scheduler now ticks on an
+  interval (`startScheduler`).
+
 ### Added
+- `tests/plan-handlers.test.ts` — every planned/scheduled task kind must have a
+  handler, so the "no handler" bug class cannot ship again.
+- `tests/queue-deadlock.test.ts` — proves blocked tasks do not stop ready work and
+  dead tasks do not strand dependents.
 - Owner-auth bypass (`TAREQ_AUTH_BYPASS=1`, default off) — a temporary
   lockout-recovery switch. When enabled it drops the dashboard sign-in screen
   and treats every owner-only route as owned, so a broken login can never lock
