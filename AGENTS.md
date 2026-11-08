@@ -51,9 +51,16 @@ Always run `npm run typecheck` and `npm run build` before pushing.
 autonomous commercial agent. It does not share VoiceProxy's `package.json`,
 build, database or processes.
 
-- Run its own tooling from inside `tareq/`: `npm install`, `npm test` (141 tests),
+- Run its own tooling from inside `tareq/`: `npm install`, `npm test` (152 tests),
   `npm run db:push`, `npm run bootstrap`, `npm run api`, `npm run worker`,
   `npm run acceptance` (commercial end-to-end, 16 checks).
+- **The API hosts the worker in-process** (`TAREQ_EMBEDDED_WORKER`, on by
+  default). The worker is the durable orchestrator loop that executes queued
+  tasks; without it, `/plan` and `/mission` enqueue work that never runs. Task
+  handlers live in `tareq/src/lib/core/handlers.ts`, shared by the API and the
+  standalone `npm run worker`, so the two entrypoints cannot drift. Every task
+  kind a plan or schedule can emit MUST have a handler (guarded by
+  `tests/plan-handlers.test.ts`) — a missing one dead-letters the task.
 - Owner dashboard is served by the API at `/` (`tareq/src/app/dashboard.html`),
   bilingual AR/EN, data from persisted tables only. It exposes 16 sections
   including Leads, Research reports, API usage & cost, Errors and Config.

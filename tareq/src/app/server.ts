@@ -28,6 +28,9 @@ import { runMission } from '../lib/commercial/mission.ts';
 import { status as gmailStatus } from '../lib/integrations/gmail.ts';
 import { status as hubspotStatus } from '../lib/integrations/hubspot.ts';
 import { status as stripeStatus, handleWebhook, createTestPaymentLink } from '../lib/integrations/stripe.ts';
+import { run } from '../lib/core/orchestrator.ts';
+import { bootstrapWorker } from '../lib/core/worker-boot.ts';
+import { startScheduler } from '../lib/queue/scheduler.ts';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -397,12 +400,45 @@ const server = createServer(async (req, res) => {
   }
 });
 
+/**
+ * Embedded worker.
+ *
+ * TAREQ's work happens in the durable task queue, which only moves when a worker
+ * runs the orchestrator loop. When there is no separate worker service, the API
+ * must host that loop itself, otherwise tasks enqueued by `/plan` and `/mission`
+ * sit PENDING forever and nothing is ever autonomous.
+ *
+ * On by default so the agent always works. Set `TAREQ_EMBEDDED_WORKER=0` when a
+ * dedicated worker service is running. Running both is safe anyway: tasks are
+ * claimed atomically, so a second poller only adds redundancy.
+ */
+function embeddedWorkerEnabled(): boolean {
+  const v = process.env.TAREQ_EMBEDDED_WORKER;
+  if (v === '0' || v === 'false') return false;
+  return true;
+}
+
+async function startEmbeddedWorker(): Promise<void> {
+  try {
+    const handlers = await bootstrapWorker();
+    startScheduler();
+    void run({ pollIntervalMs: 2_000 }).catch((err) =>
+      logger.error('embedded worker stopped', { error: (err as Error).message }),
+    );
+    logger.info('embedded worker started', { handlers });
+  } catch (err) {
+    // A broken queue must not take the dashboard down; it stays observable.
+    logger.error('embedded worker failed to start', { error: (err as Error).message });
+  }
+}
+
 if (import.meta.url === `file://${process.argv[1]}`) {
   env();
   if (authBypass()) {
     logger.warn('OWNER AUTH BYPASS ENABLED (TAREQ_AUTH_BYPASS=1): every owner-only route is open. Switch it off once access is restored.');
   }
   server.listen(PORT, () => logger.info('tareq api listening', { port: PORT, authBypass: authBypass() }));
+  if (embeddedWorkerEnabled()) void startEmbeddedWorker();
 }
 
 export { server, routes };

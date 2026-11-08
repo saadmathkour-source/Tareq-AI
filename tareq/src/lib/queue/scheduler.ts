@@ -99,3 +99,16 @@ export async function tickScheduler(now = new Date()): Promise<number> {
   }
   return fired;
 }
+
+/**
+ * Run the scheduler on an interval. `tickScheduler` only fires schedules that
+ * are due, so a short interval is cheap and safe. Returns a stop function.
+ * Without this, daily crons would only be checked at process start.
+ */
+export function startScheduler(intervalMs = 60_000): () => void {
+  const timer = setInterval(() => {
+    void tickScheduler().catch((err) => logger.error('scheduler tick failed', { error: (err as Error).message }));
+  }, intervalMs);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
