@@ -302,6 +302,172 @@ export function trustAssets(kind: 'sample' | 'transparent_pricing' | 'refund_pol
   return [...map[kind]];
 }
 
+/**
+ * Source reliability, declared explicitly so trust is auditable rather than
+ * implied. Keys are matched case-insensitively against `TrustSource.source`.
+ * A source we have never seen is treated as low trust (0.4), never as high.
+ */
+export const SOURCE_RELIABILITY: Record<string, number> = {
+  owner: 0.95,
+  supabase: 0.95,
+  official_registry: 0.95,
+  stripe_webhook: 0.95,
+  public_dataset: 0.8,
+  wikipedia: 0.8,
+  hackernews: 0.55,
+  public_discussion: 0.55,
+  model_estimate: 0.3,
+  assumption: 0.3,
+};
+
+export interface TrustSource {
+  id: string;
+  statement: string;
+  source: string;
+  sourceUrl?: string | null;
+  /** Self-declared confidence, 0..1. */
+  confidence: number;
+  /** True only when the claim carries a verification timestamp. */
+  verified: boolean;
+  validUntil?: Date | string | null;
+  supporting?: string[];
+  contradicting?: string[];
+}
+
+export interface TrustAssessment {
+  /** Composite trust score, 0..1. */
+  score: number;
+  /** Confidence propagated from the sources, 0..1. */
+  confidence: number;
+  /** 1 - confidence, widened by each contradiction. */
+  uncertainty: number;
+  /** Reliability-weighted mean of the sources, 0..1. */
+  sourceReliability: number;
+  /** Claim ids past their validity date. */
+  staleIds: string[];
+  /** Claim ids that are contradicted (by themselves or another claim). */
+  contradictionIds: string[];
+  /** Which claim each contradiction came from, for auditability. */
+  contradictions: Array<{ id: string; contradictedBy: string[] }>;
+  /** Evidence provenance: each claim with the chain of claims supporting it. */
+  provenance: Array<{ id: string; source: string; sourceUrl: string | null; chain: string[] }>;
+  /** Claims safe to show a customer. */
+  publishableIds: string[];
+  /** Human-readable reasons a claim was withheld. */
+  blockers: string[];
+}
+
+export function sourceReliability(source: string): number {
+  return SOURCE_RELIABILITY[source.toLowerCase()] ?? 0.4;
+}
+
+function isExpired(s: TrustSource, now: number): boolean {
+  if (!s.validUntil) return false;
+  return new Date(s.validUntil).getTime() < now;
+}
+
+/**
+ * Trust-Transfer Engine (capability 42).
+ *
+ * Turns a pile of evidence into one auditable trust decision. It is a pure
+ * function: no database, no model, no randomness. It answers six questions and
+ * records the reason for each answer:
+ *   - provenance: where did each claim come from, and what supports it?
+ *   - confidence propagation: how much of the source confidence survives?
+ *   - source reliability: how much do we trust each source class?
+ *   - stale evidence: which claims have expired?
+ *   - contradictory evidence: which claims disagree?
+ *   - uncertainty propagation: how much doubt must be carried forward?
+ *
+ * Only verified, unexpired, uncontradicted claims above 0.6 confidence are
+ * publishable. Everything withheld is named in `blockers`.
+ */
+export function assessTrust(sources: TrustSource[], now: number = Date.now()): TrustAssessment {
+  const byId = new Map(sources.map((s) => [s.id, s]));
+  const staleIds: string[] = [];
+  const contradictionIds: string[] = [];
+  const contradictions: Array<{ id: string; contradictedBy: string[] }> = [];
+  const provenance: TrustAssessment['provenance'] = [];
+  const publishableIds: string[] = [];
+  const blockers: string[] = [];
+
+  // Provenance: walk the supporting chain for each claim, guarding against cycles.
+  const chainOf = (id: string, seen = new Set<string>()): string[] => {
+    if (seen.has(id)) return [];
+    seen.add(id);
+    const s = byId.get(id);
+    if (!s) return [];
+    return (s.supporting ?? []).flatMap((sid) => [sid, ...chainOf(sid, seen)]);
+  };
+
+  // Contradictions: explicit self-declaration, plus mutual contradiction.
+  const explicitContradicted = new Set<string>();
+  for (const s of sources) {
+    if ((s.contradicting ?? []).length > 0) explicitContradicted.add(s.id);
+  }
+  for (const s of sources) {
+    const from = sources
+      .filter((o) => o.id !== s.id && ((o.contradicting ?? []).includes(s.id) || (s.contradicting ?? []).includes(o.id)))
+      .map((o) => o.id);
+    if (from.length > 0) {
+      contradictionIds.push(s.id);
+      contradictions.push({ id: s.id, contradictedBy: from });
+    }
+  }
+
+  let reliabilitySum = 0;
+  let confidenceSum = 0;
+  let counted = 0;
+
+  for (const s of sources) {
+    const rel = sourceReliability(s.source);
+    provenance.push({ id: s.id, source: s.source, sourceUrl: s.sourceUrl ?? null, chain: chainOf(s.id) });
+
+    const stale = isExpired(s, now);
+    if (stale) staleIds.push(s.id);
+
+    const contradicted = explicitContradicted.has(s.id) || contradictionIds.includes(s.id);
+
+    // Only verified, unexpired claims contribute to the trust numbers.
+    if (s.verified && !stale) {
+      reliabilitySum += rel;
+      confidenceSum += rel * clamp(s.confidence, 0, 1);
+      counted += 1;
+    }
+
+    const reasons: string[] = [];
+    if (!s.verified) reasons.push('not verified');
+    if (stale) reasons.push('stale');
+    if (contradicted) reasons.push('contradicted');
+    if (clamp(s.confidence, 0, 1) < 0.6) reasons.push('confidence below 0.6');
+
+    if (reasons.length === 0) publishableIds.push(s.id);
+    else blockers.push(`${s.id}: ${reasons.join(', ')}`);
+  }
+
+  const sourceReliabilityMean = counted > 0 ? reliabilitySum / counted : 0;
+  // Weighted mean: total reliability-weighted confidence over total reliability.
+  let confidence = reliabilitySum > 0 ? confidenceSum / reliabilitySum : 0;
+  // Each contradiction widens uncertainty: a disagreement cannot be hidden.
+  const uniqueContradictions = new Set(contradictionIds).size;
+  for (let i = 0; i < uniqueContradictions; i += 1) confidence *= 0.6;
+  confidence = clamp(confidence, 0, 1);
+  const uncertainty = clamp(1 - confidence + 0.05 * uniqueContradictions, 0, 1);
+
+  return {
+    score: round2(confidence),
+    confidence: round2(confidence),
+    uncertainty: round2(uncertainty),
+    sourceReliability: round2(sourceReliabilityMean),
+    staleIds,
+    contradictionIds: [...new Set(contradictionIds)],
+    contradictions,
+    provenance,
+    publishableIds,
+    blockers,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 43. Lead Memory Shield
 // ---------------------------------------------------------------------------

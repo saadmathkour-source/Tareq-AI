@@ -81,3 +81,66 @@ build, database or processes.
   `Contents: write`, so git push returns `403`. Fix in GitHub: Settings ->
   Developer settings -> Fine-grained tokens -> Repository permissions ->
   Contents: Read and write. This is a scope issue, not a code issue.
+
+## Deployment topology (verified 2026-11-08)
+
+- The repo root is the **legacy VoiceProxy** Next.js app; TAREQ lives only in
+  `tareq/`. Two Railway projects build this one repo (`precious-achievement`,
+  `bountiful-forgiveness`). The host `tareq-ai-production.up.railway.app`
+  currently serves **VoiceProxy**, not TAREQ — TAREQ's `/health` 404s there.
+  The authoritative TAREQ service URL is only visible in the Railway dashboard;
+  it is not discoverable from the repo. Treat "production TAREQ is up" as
+  unproven until `/health` returns `{"service":"tareq"}` on the live host.
+- The corrupted secret `$DATABASE_URL` has tenant `1jejjdvkgohknbyguzt`; the
+  correct Supabase ref is `ljejjdvkgohknbnyguzt` (verified via
+  `https://api.supabase.com/v1/projects`). The secret's password is valid — only
+  the username is wrong. See `tareq/.env.example` for the expected URL shape.
+- Stripe key in the environment is a **live** restricted key (`rk_live_...`),
+  not test mode. Do NOT create live payment links or record revenue during
+  audits. Webhook behaviour is verified via `tests/integrations.test.ts` and a
+  signature-verified synthetic event posted to `/webhooks/stripe`.
+
+## Testing gotchas
+
+- The embedded worker (on by default in the API) **claims tasks concurrently**,
+  so `tests/queue-deadlock.test.ts` can fail with "oldest ready task is claimed
+  first" if the API is running. Stop the API (or set `TAREQ_EMBEDDED_WORKER=0`)
+  before running the full suite; the suite is otherwise 152/152 green.
+- Buyers link to an opportunity through `Lead.opportunityId`, NOT a
+  `Buyer.opportunityId` field (that column does not exist). `StageEvent` sorts by
+  `startedAt`, not `createdAt`.
+- `scripts/deliverable-email-audit.ts` is the real, inspectable deliverable for
+  the email-deliverability offer: it performs live DNS lookups (MX/SPF/DMARC/DKIM)
+  and writes an HTML report to `tareq/deliverables/`.
+
+## 2026-11-08 recovery session — key findings
+
+- **The DB password has been rotated.** Both the `.env` password and the
+  injected `$DATABASE_URL` password now fail with `password authentication
+  failed for user "postgres"` against `postgres.ljejjdvkgohknbnyguzt`. The
+  earlier "tenant not found" error is gone, which means the owner fixed the
+  username but the password in the secret is stale. The owner must reset the
+  database password in the Supabase dashboard and update the secret — do NOT
+  guess. Repeated bad attempts trip a Supabase `(ECIRCUITBREAKER)` that blocks
+  all new connections for a while, so test the password at most once.
+- **The secret `DATABASE_URL` still has the wrong tenant** `postgres.1jejjdvkgohknbyguzt`
+  (digit `1`, missing `n`) and no `?schema=tareq&pgbouncer=true&connection_limit=1`
+  query, so even with a good password Prisma would target the wrong schema.
+- Authoritative Supabase config (from `api.supabase.com`): ref
+  `ljejjdvkgohknbnyguzt`, host `aws-0-ap-south-1.pooler.supabase.com`, port 5432
+  (session) / 6543 (transaction), db `postgres`, user `postgres.ljejjdvkgohknbnyguzt`.
+- **Railway still serves VoiceProxy** even though `main`'s root `railway.toml`
+  builds `tareq/Dockerfile`. The pre-fix `railway.toml` (before commit 9e6e861)
+  was `builder = "NIXPACKS"` + `startCommand = "npm run start"` = VoiceProxy.
+  Conclusion: the public domain is attached to a **stale service/deployment**
+  created before that commit, or a second service whose Root Directory is `/`.
+  Owner action: in the Railway dashboard, confirm the service's Root Directory
+  and Redeploy, and re-point the public domain at the TAREQ service.
+- Ledger now distinguishes `TEST_TRANSACTION` and `PAYMENT_FAILED` from
+  `REVENUE_CONFIRMED`, and `summary()` counts revenue only when `verifiedAt` is
+  set. `handleWebhook` uses `event.livemode` (authoritative), never the key
+  prefix, to decide revenue vs test.
+- New: `src/lib/sandbox/exec.ts` (capability 13) — in-process V8 isolation,
+  static screen, timeout, JSON-only output. New: `assessTrust` (capability 42).
+  Gmail gained `createDraft`/`getDraft`; HubSpot gained get/update/find/company/
+  associate/deal/delete.

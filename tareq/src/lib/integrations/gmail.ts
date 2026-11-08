@@ -55,6 +55,50 @@ export interface SendResult {
   reason?: string;
 }
 
+function mime(to: string, subject: string, body: string): string {
+  return [
+    `To: ${to}`,
+    `From: ${process.env.GMAIL_SENDER}`,
+    `Subject: ${subject}`,
+    'Content-Type: text/plain; charset="UTF-8"',
+    '',
+    body,
+  ].join('\r\n');
+}
+
+/**
+ * Create a draft in the owner's mailbox. Drafting is not sending: it never
+ * leaves the mailbox and needs no external approval. Returns the draft id so it
+ * can be retrieved and verified before any send.
+ */
+export async function createDraft(to: string, subject: string, body: string): Promise<{ ok: boolean; draftId?: string; reason?: string }> {
+  const st = status();
+  if (!st.configured) return { ok: false, reason: `Gmail not configured (missing: ${st.missing.join(', ')})` };
+  const token = await accessToken();
+  const raw = Buffer.from(mime(to, subject, body)).toString('base64url');
+  const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/drafts', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ message: { raw } }),
+  });
+  const data = (await res.json()) as { id?: string; error?: { message?: string } };
+  if (!res.ok || !data.id) return { ok: false, reason: data.error?.message ?? `HTTP ${res.status}` };
+  return { ok: true, draftId: data.id };
+}
+
+/** Retrieve a draft by id, so a created draft can be verified before sending. */
+export async function getDraft(draftId: string): Promise<{ ok: boolean; id?: string; reason?: string }> {
+  const st = status();
+  if (!st.configured) return { ok: false, reason: `Gmail not configured (missing: ${st.missing.join(', ')})` };
+  const token = await accessToken();
+  const res = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(draftId)}`, {
+    headers: { authorization: `Bearer ${token}` },
+  });
+  const data = (await res.json()) as { id?: string; error?: { message?: string } };
+  if (!res.ok || !data.id) return { ok: false, reason: data.error?.message ?? `HTTP ${res.status}` };
+  return { ok: true, id: data.id };
+}
+
 /**
  * Send one plain-text email. Requires owner approval to have been granted
  * already — this function does not check approvals itself; the worker does.
@@ -65,15 +109,7 @@ export async function send(to: string, subject: string, body: string): Promise<S
     return { sent: false, to, provider: 'gmail', reason: `Gmail not configured (missing: ${st.missing.join(', ')})` };
   }
   const token = await accessToken();
-  const mime = [
-    `To: ${to}`,
-    `From: ${st.sender}`,
-    `Subject: ${subject}`,
-    'Content-Type: text/plain; charset="UTF-8"',
-    '',
-    body,
-  ].join('\r\n');
-  const raw = Buffer.from(mime).toString('base64url');
+  const raw = Buffer.from(mime(to, subject, body)).toString('base64url');
   const res = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
     method: 'POST',
     headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },

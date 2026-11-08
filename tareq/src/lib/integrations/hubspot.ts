@@ -68,3 +68,103 @@ export async function upsertContact(input: {
   if (!res.ok || !data.id) return { ok: false, reason: data.message ?? `HTTP ${res.status}` };
   return { ok: true, contactId: data.id, created: true };
 }
+
+function token(): string {
+  return process.env.HUBSPOT_PRIVATE_APP_TOKEN!;
+}
+
+/** Read a contact by id. */
+export async function getContact(id: string): Promise<{ ok: boolean; id?: string; properties?: Record<string, string>; reason?: string }> {
+  if (!status().configured) return { ok: false, reason: 'HubSpot not configured' };
+  const res = await fetch(`${BASE}/crm/v3/objects/contacts/${encodeURIComponent(id)}?properties=email,firstname,lastname`, {
+    headers: { authorization: `Bearer ${token()}` },
+  });
+  const data = (await res.json()) as { id?: string; properties?: Record<string, string>; message?: string };
+  if (!res.ok || !data.id) return { ok: false, reason: data.message ?? `HTTP ${res.status}` };
+  return { ok: true, id: data.id, properties: data.properties };
+}
+
+/** Update specific contact properties. */
+export async function updateContact(id: string, properties: Record<string, string>): Promise<{ ok: boolean; reason?: string }> {
+  if (!status().configured) return { ok: false, reason: 'HubSpot not configured' };
+  const res = await fetch(`${BASE}/crm/v3/objects/contacts/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { authorization: `Bearer ${token()}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ properties }),
+  });
+  const data = (await res.json()) as { id?: string; message?: string };
+  if (!res.ok || !data.id) return { ok: false, reason: data.message ?? `HTTP ${res.status}` };
+  return { ok: true };
+}
+
+/** Find existing contacts by email. Empty array means no duplicate exists. */
+export async function findContactByEmail(email: string): Promise<{ ok: boolean; ids: string[]; reason?: string }> {
+  if (!status().configured) return { ok: false, ids: [], reason: 'HubSpot not configured' };
+  const res = await fetch(`${BASE}/crm/v3/objects/contacts/search`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token()}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ filterGroups: [{ filters: [{ propertyName: 'email', operator: 'EQ', value: email }] }] }),
+  });
+  const data = (await res.json()) as { results?: Array<{ id: string }>; message?: string };
+  if (!res.ok) return { ok: false, ids: [], reason: data.message ?? `HTTP ${res.status}` };
+  return { ok: true, ids: (data.results ?? []).map((r) => r.id) };
+}
+
+/** Create a company. */
+export async function createCompany(name: string, domain?: string): Promise<{ ok: boolean; companyId?: string; reason?: string }> {
+  if (!status().configured) return { ok: false, reason: 'HubSpot not configured' };
+  const properties: Record<string, string> = { name };
+  if (domain) properties['domain'] = domain;
+  const res = await fetch(`${BASE}/crm/v3/objects/companies`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token()}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ properties }),
+  });
+  const data = (await res.json()) as { id?: string; message?: string };
+  if (!res.ok || !data.id) return { ok: false, reason: data.message ?? `HTTP ${res.status}` };
+  return { ok: true, companyId: data.id };
+}
+
+/** Associate a contact with a company (v4 association, default type). */
+export async function associateContactToCompany(contactId: string, companyId: string): Promise<{ ok: boolean; reason?: string }> {
+  if (!status().configured) return { ok: false, reason: 'HubSpot not configured' };
+  const res = await fetch(
+    `${BASE}/crm/v4/objects/contacts/${encodeURIComponent(contactId)}/associations/default/companies/${encodeURIComponent(companyId)}`,
+    { method: 'PUT', headers: { authorization: `Bearer ${token()}` } },
+  );
+  if (!res.ok) return { ok: false, reason: `HTTP ${res.status}` };
+  return { ok: true };
+}
+
+/** Create a deal and associate it with a contact. */
+export async function createDeal(input: { name: string; amount?: number; stage?: string; contactId?: string }): Promise<{ ok: boolean; dealId?: string; reason?: string }> {
+  if (!status().configured) return { ok: false, reason: 'HubSpot not configured' };
+  const properties: Record<string, string> = { dealname: input.name };
+  if (input.amount !== undefined) properties['amount'] = String(input.amount);
+  if (input.stage) properties['dealstage'] = input.stage;
+  const res = await fetch(`${BASE}/crm/v3/objects/deals`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token()}`, 'content-type': 'application/json' },
+    body: JSON.stringify({ properties }),
+  });
+  const data = (await res.json()) as { id?: string; message?: string };
+  if (!res.ok || !data.id) return { ok: false, reason: data.message ?? `HTTP ${res.status}` };
+  if (input.contactId) {
+    await fetch(
+      `${BASE}/crm/v4/objects/deals/${encodeURIComponent(data.id)}/associations/default/contacts/${encodeURIComponent(input.contactId)}`,
+      { method: 'PUT', headers: { authorization: `Bearer ${token()}` } },
+    );
+  }
+  return { ok: true, dealId: data.id };
+}
+
+/** Delete a record of a given object type (used to clean up test data). */
+export async function deleteObject(objectType: 'contacts' | 'companies' | 'deals', id: string): Promise<{ ok: boolean; reason?: string }> {
+  if (!status().configured) return { ok: false, reason: 'HubSpot not configured' };
+  const res = await fetch(`${BASE}/crm/v3/objects/${objectType}/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: { authorization: `Bearer ${token()}` },
+  });
+  if (!res.ok && res.status !== 204) return { ok: false, reason: `HTTP ${res.status}` };
+  return { ok: true };
+}

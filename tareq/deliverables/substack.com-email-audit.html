@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Email deliverability audit — substack.com</title>
+<style>body{font:15px/1.5 system-ui,sans-serif;max-width:900px;margin:40px auto;padding:0 20px;color:#1a202c}
+h1{margin-bottom:4px}.score{font-size:44px;font-weight:800}.muted{color:#718096}
+table{border-collapse:collapse;width:100%;margin-top:20px}th,td{border:1px solid #e2e8f0;padding:8px;text-align:left;vertical-align:top}
+th{background:#f7fafc}code{font-size:12px;word-break:break-all}</style></head>
+<body>
+<h1>Email deliverability audit</h1>
+<p class="muted">Domain: <strong>substack.com</strong> · Generated 2026-11-08T22:28:26.990Z · DKIM selector checked: <code>google</code></p>
+<p><span class="score" style="color:#0a7d33">88/100</span>
+<span class="muted">— weighted across MX, SPF, DMARC and DKIM</span></p>
+<table><thead><tr><th>Area</th><th>Status</th><th>Finding</th><th>Raw DNS record</th></tr></thead><tbody>
+    <tr>
+      <td><strong>MX</strong></td>
+      <td style="color:#0a7d33;font-weight:700">PASS</td>
+      <td>2 mail exchanger(s)</td>
+      <td><code>10 mxa.mailgun.org, 10 mxb.mailgun.org</code></td>
+    </tr>
+    <tr>
+      <td><strong>SPF</strong></td>
+      <td style="color:#b7791f;font-weight:700">WARN</td>
+      <td>soft fail (~all) — spoofed mail still lands; all=~all</td>
+      <td><code>v=spf1 include:_spf.google.com include:mailgun.org include:mail.zendesk.com ~all</code></td>
+    </tr>
+    <tr>
+      <td><strong>DMARC</strong></td>
+      <td style="color:#0a7d33;font-weight:700">PASS</td>
+      <td>p=reject</td>
+      <td><code>v=DMARC1; p=reject; pct=100; rua=mailto:re+kvnosxqvppz@dmarc.postmarkapp.com; sp=reject; aspf=r;</code></td>
+    </tr>
+    <tr>
+      <td><strong>DKIM</strong></td>
+      <td style="color:#0a7d33;font-weight:700">PASS</td>
+      <td>selector "google" publishes a key</td>
+      <td><code>v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAhSxZK3Q0YieBvcdcHojJLJQK1ooDVYtpjy3A7lEj/q6lDKTSAazT0jUd+AEUShEYBndvQ+RNwRJ1NEUtg686FGK9Vs7uX7iwGC</code></td>
+    </tr></tbody></table>
+<p class="muted" style="margin-top:24px">Every finding above is derived from a live public DNS lookup performed at generation time. No estimate, no simulated data.
+Fixes are standard DNS changes the domain owner applies at their DNS host.</p>
+</body></html>

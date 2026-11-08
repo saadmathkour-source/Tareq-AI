@@ -82,6 +82,34 @@ export interface WebhookResult {
 }
 
 /**
+ * Pure classification of a verified Stripe event, so the revenue rules can be
+ * unit-tested without a database. `livemode` is authoritative: a test-mode
+ * payment is never revenue, whatever the key prefix says.
+ */
+export type StripeEventAction =
+  | { action: 'revenue'; amountUsd: number; externalId: string; dealId?: string }
+  | { action: 'test'; amountUsd: number; externalId: string; dealId?: string }
+  | { action: 'failed'; amountUsd: number; externalId: string }
+  | { action: 'ignore'; reason: string };
+
+export function classifyStripeEvent(event: { id?: string; type?: string; livemode?: boolean; data?: { object?: Record<string, unknown> } }): StripeEventAction {
+  const session = event.data?.object ?? {};
+  const amountUsd = Number(session['amount_total'] ?? session['amount'] ?? 0) / 100;
+  const externalId = String(event.id ?? session['id'] ?? '');
+  if (!externalId) return { action: 'ignore', reason: 'event has no id' };
+  const dealId = typeof session['client_reference_id'] === 'string' ? session['client_reference_id'] : undefined;
+
+  if (event.type === 'payment_intent.payment_failed' || event.type === 'checkout.session.async_payment_failed') {
+    return { action: 'failed', amountUsd, externalId };
+  }
+  if (event.type !== 'checkout.session.completed') {
+    return { action: 'ignore', reason: `ignored event type ${event.type}` };
+  }
+  if (event.livemode !== true) return { action: 'test', amountUsd, externalId, dealId };
+  return { action: 'revenue', amountUsd, externalId, dealId };
+}
+
+/**
  * Handle a raw Stripe webhook body. Verifies the signature, then records revenue
  * exactly once per Stripe event id.
  *
@@ -109,42 +137,66 @@ export async function handleWebhook(rawBody: string, signatureHeader: string): P
     return { handled: false, recorded: false, reason: 'signature verification failed' };
   }
 
-  let event: { id?: string; type?: string; data?: { object?: Record<string, unknown> } };
+  let event: { id?: string; type?: string; livemode?: boolean; data?: { object?: Record<string, unknown> } };
   try {
     event = JSON.parse(rawBody);
   } catch {
     return { handled: false, recorded: false, reason: 'invalid JSON' };
   }
-  if (event.type !== 'checkout.session.completed') {
-    return { handled: true, recorded: false, reason: `ignored event type ${event.type}` };
+
+  const decision = classifyStripeEvent(event);
+  if (decision.action === 'ignore') {
+    return { handled: true, recorded: false, reason: decision.reason };
   }
 
-  const session = event.data?.object ?? {};
-  const amountTotal = Number(session['amount_total'] ?? 0) / 100;
-  const externalId = String(event.id ?? session['id'] ?? '');
-  if (!externalId) return { handled: false, recorded: false, reason: 'event has no id' };
+  const { amountUsd, externalId } = decision;
 
   // Idempotency: an externalId already in the ledger means this webhook was
   // already processed; do not record it twice.
   const existing = await prisma.ledgerEntry.findUnique({ where: { externalId } });
-  if (existing) return { handled: true, recorded: false, reason: 'already recorded', amountUsd: amountTotal };
+  if (existing) return { handled: true, recorded: false, reason: 'already recorded', amountUsd };
 
-  const dealId = typeof session['client_reference_id'] === 'string' ? session['client_reference_id'] : undefined;
+  if (decision.action === 'failed') {
+    await record({
+      kind: 'PAYMENT_FAILED',
+      amountUsd,
+      provider: 'stripe',
+      externalId,
+      evidence: { webhookEventId: event.id, signatureVerified: true, reason: event.data?.object?.['last_payment_error'] ?? null },
+    });
+    logger.warn('stripe payment failed', { eventId: event.id, amountUsd });
+    return { handled: true, recorded: false, reason: 'payment failed', amountUsd };
+  }
+
+  // Test-mode payments are recorded for the audit trail but are NOT revenue.
+  if (decision.action === 'test') {
+    await record({
+      kind: 'TEST_TRANSACTION',
+      amountUsd,
+      provider: 'stripe',
+      externalId,
+      dealId: decision.dealId,
+      evidence: { webhookEventId: event.id, sessionId: event.data?.object?.['id'], amountUsd, signatureVerified: true, mode: 'test' },
+    });
+    logger.info('stripe TEST transaction recorded (not revenue)', { eventId: event.id, amountUsd });
+    return { handled: true, recorded: false, reason: 'test-mode payment recorded as TEST_TRANSACTION, not revenue', amountUsd };
+  }
+
   await recordRevenue({
-    amountUsd: amountTotal,
+    amountUsd,
     externalId,
     provider: 'stripe',
-    dealId,
-    evidence: { webhookEventId: event.id, sessionId: session['id'], amountTotal, signatureVerified: true },
+    dealId: decision.dealId,
+    evidence: { webhookEventId: event.id, sessionId: event.data?.object?.['id'], amountUsd, signatureVerified: true, livemode: true },
   });
   // Stripe's own fee is a separate ledger kind, estimated at 2.9% + $0.30.
   await record({
     kind: 'FEE',
-    amountUsd: Number((amountTotal * 0.029 + 0.3).toFixed(4)),
+    amountUsd: Number((amountUsd * 0.029 + 0.3).toFixed(4)),
     provider: 'stripe',
     externalId: `${externalId}:fee`,
     evidence: { note: 'estimated Stripe processing fee' },
   });
-  logger.info('stripe revenue recorded', { eventId: event.id, amountTotal });
-  return { handled: true, recorded: true, amountUsd: amountTotal };
+  logger.info('stripe revenue recorded', { eventId: event.id, amountUsd });
+  return { handled: true, recorded: true, amountUsd };
 }

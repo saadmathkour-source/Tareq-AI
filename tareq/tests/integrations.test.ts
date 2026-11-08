@@ -1,9 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { status as gmailStatus } from '../src/lib/integrations/gmail.ts';
-import { status as hubspotStatus } from '../src/lib/integrations/hubspot.ts';
-import { status as stripeStatus, handleWebhook, createTestPaymentLink } from '../src/lib/integrations/stripe.ts';
+import { status as gmailStatus, createDraft as gmailCreateDraft, getDraft as gmailGetDraft, send as gmailSend } from '../src/lib/integrations/gmail.ts';
+import {
+  status as hubspotStatus,
+  upsertContact as hsUpsertContact,
+  getContact as hsGetContact,
+  updateContact as hsUpdateContact,
+  createCompany as hsCreateCompany,
+  associateContactToCompany as hsAssociate,
+  createDeal as hsCreateDeal,
+  deleteObject as hsDeleteObject,
+  findContactByEmail as hsFindByEmail,
+} from '../src/lib/integrations/hubspot.ts';
+import { status as stripeStatus, handleWebhook, createTestPaymentLink, classifyStripeEvent } from '../src/lib/integrations/stripe.ts';
 
 /**
  * Integration adapters must be honest: with no credentials they report
@@ -95,4 +105,55 @@ test('stripe payment link refuses to act when the key is missing', async () => {
   assert.equal(r.ok, false);
   assert.match(String(r.reason), /not configured/);
   process.env = saved;
+});
+
+test('gmail draft and send refuse when unconfigured instead of pretending', async () => {
+  const saved = { ...process.env };
+  for (const k of ['GMAIL_CLIENT_ID', 'GMAIL_CLIENT_SECRET', 'GMAIL_REFRESH_TOKEN', 'GMAIL_SENDER']) delete process.env[k];
+  const d = await gmailCreateDraft('x@y.z', 's', 'b');
+  assert.equal(d.ok, false);
+  assert.match(String(d.reason), /not configured/);
+  const g = await gmailGetDraft('draft-1');
+  assert.equal(g.ok, false);
+  const s = await gmailSend('x@y.z', 's', 'b');
+  assert.equal(s.sent, false);
+  process.env = saved;
+});
+
+test('hubspot writes refuse when unconfigured instead of pretending', async () => {
+  const saved = { ...process.env };
+  delete process.env.HUBSPOT_PRIVATE_APP_TOKEN;
+  assert.equal((await hsUpsertContact({ email: 'x@y.z' })).ok, false);
+  assert.equal((await hsGetContact('1')).ok, false);
+  assert.equal((await hsUpdateContact('1', { firstname: 'a' })).ok, false);
+  assert.equal((await hsCreateCompany('Acme')).ok, false);
+  assert.equal((await hsAssociate('1', '2')).ok, false);
+  assert.equal((await hsCreateDeal({ name: 'deal' })).ok, false);
+  assert.equal((await hsDeleteObject('contacts', '1')).ok, false);
+  const find = await hsFindByEmail('x@y.z');
+  assert.equal(find.ok, false);
+  assert.deepEqual(find.ids, []);
+  process.env = saved;
+});
+
+test('stripe event classifier never treats a test-mode payment as revenue', () => {
+  const base = { id: 'evt_1', type: 'checkout.session.completed', data: { object: { amount_total: 4900, id: 'cs_1' } } };
+  // livemode absent -> treated as test, never revenue
+  assert.equal(classifyStripeEvent(base).action, 'test');
+  // explicit test mode
+  assert.equal(classifyStripeEvent({ ...base, livemode: false }).action, 'test');
+  // explicit live mode -> revenue
+  const live = classifyStripeEvent({ ...base, livemode: true });
+  assert.equal(live.action, 'revenue');
+  assert.equal((live as { amountUsd: number }).amountUsd, 49);
+});
+
+test('stripe event classifier routes failures and unknown types away from revenue', () => {
+  const failed = classifyStripeEvent({ id: 'evt_2', type: 'payment_intent.payment_failed', livemode: true, data: { object: { amount: 5000 } } });
+  assert.equal(failed.action, 'failed');
+  assert.equal((failed as { amountUsd: number }).amountUsd, 50);
+  const other = classifyStripeEvent({ id: 'evt_3', type: 'customer.created', livemode: true });
+  assert.equal(other.action, 'ignore');
+  const noId = classifyStripeEvent({ type: 'checkout.session.completed', livemode: true });
+  assert.equal(noId.action, 'ignore');
 });

@@ -14,6 +14,8 @@ import { ValidationError } from '../core/errors.ts';
 export type LedgerKind =
   | 'REVENUE_CONFIRMED'
   | 'PAYMENT_PENDING'
+  | 'PAYMENT_FAILED'
+  | 'TEST_TRANSACTION'
   | 'REFUND'
   | 'FEE'
   | 'TAX_ESTIMATE'
@@ -88,6 +90,10 @@ export interface FinancialSummary {
   outstandingUsd: number;
   refundExposureUsd: number;
   taxEstimateUsd: number;
+  /** Stripe test-mode payments. Never counted as commercial revenue. */
+  testTransactionsUsd: number;
+  /** Confirmed payments that later failed to settle. */
+  failedPaymentsUsd: number;
   byKind: Record<string, number>;
 }
 
@@ -99,7 +105,13 @@ export async function summary(): Promise<FinancialSummary> {
   const byKind: Record<string, number> = {};
   for (const g of grouped) byKind[g.kind] = Number(g._sum.amountUsd ?? 0);
 
-  const grossRevenueUsd = byKind['REVENUE_CONFIRMED'] ?? 0;
+  // Revenue requires BOTH kind = REVENUE_CONFIRMED AND a verifiedAt stamp. A row
+  // without verification is not income, no matter how it was labelled.
+  const confirmed = await prisma.ledgerEntry.aggregate({
+    where: { kind: 'REVENUE_CONFIRMED', verifiedAt: { not: null } },
+    _sum: { amountUsd: true },
+  });
+  const grossRevenueUsd = Number(confirmed._sum.amountUsd ?? 0);
   const refunds = byKind['REFUND'] ?? 0;
   const fees = byKind['FEE'] ?? 0;
   const taxEstimateUsd = byKind['TAX_ESTIMATE'] ?? 0;
@@ -119,6 +131,8 @@ export async function summary(): Promise<FinancialSummary> {
     outstandingUsd: byKind['PAYMENT_PENDING'] ?? 0,
     refundExposureUsd: refunds,
     taxEstimateUsd,
+    testTransactionsUsd: byKind['TEST_TRANSACTION'] ?? 0,
+    failedPaymentsUsd: byKind['PAYMENT_FAILED'] ?? 0,
     byKind,
   };
 }
