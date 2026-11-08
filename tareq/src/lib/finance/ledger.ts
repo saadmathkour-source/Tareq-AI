@@ -99,19 +99,39 @@ export interface FinancialSummary {
 
 const COST_KINDS: LedgerKind[] = ['AI_COST', 'HOSTING_COST', 'TOOL_COST', 'MARKETING_COST', 'DELIVERY_COST', 'FEE'];
 
+/**
+ * Marker present in every Stripe test object id (e.g. `it_test_…`, `cs_test_…`,
+ * `evt_test_…`). A revenue row whose external id contains it came from a test
+ * fixture, so it must never inflate commercial revenue — it is surfaced
+ * separately as test volume instead.
+ */
+const TEST_ID_MARKER = '_test_';
+
+export function isTestExternalId(externalId: string | null | undefined): boolean {
+  return typeof externalId === 'string' && externalId.includes(TEST_ID_MARKER);
+}
+
 /** Roll the ledger up into the numbers the dashboard and group 59/60 report. */
 export async function summary(): Promise<FinancialSummary> {
   const grouped = await prisma.ledgerEntry.groupBy({ by: ['kind'], _sum: { amountUsd: true } });
   const byKind: Record<string, number> = {};
   for (const g of grouped) byKind[g.kind] = Number(g._sum.amountUsd ?? 0);
 
-  // Revenue requires BOTH kind = REVENUE_CONFIRMED AND a verifiedAt stamp. A row
-  // without verification is not income, no matter how it was labelled.
-  const confirmed = await prisma.ledgerEntry.aggregate({
+  // Revenue requires BOTH kind = REVENUE_CONFIRMED AND a verifiedAt stamp, AND
+  // must not be a test fixture. A row without verification is not income; a row
+  // whose external id carries the Stripe test marker (e.g. `it_test_…`) is not
+  // commercial revenue either, whatever it was labelled — it is surfaced as test
+  // volume instead so a fixture can never inflate the headline number.
+  const confirmedRows = await prisma.ledgerEntry.findMany({
     where: { kind: 'REVENUE_CONFIRMED', verifiedAt: { not: null } },
-    _sum: { amountUsd: true },
+    select: { amountUsd: true, externalId: true },
   });
-  const grossRevenueUsd = Number(confirmed._sum.amountUsd ?? 0);
+  const mislabelledTestUsd = confirmedRows
+    .filter((r) => isTestExternalId(r.externalId))
+    .reduce((acc, r) => acc + Number(r.amountUsd), 0);
+  const grossRevenueUsd = confirmedRows
+    .filter((r) => !isTestExternalId(r.externalId))
+    .reduce((acc, r) => acc + Number(r.amountUsd), 0);
   const refunds = byKind['REFUND'] ?? 0;
   const fees = byKind['FEE'] ?? 0;
   const taxEstimateUsd = byKind['TAX_ESTIMATE'] ?? 0;
@@ -131,7 +151,7 @@ export async function summary(): Promise<FinancialSummary> {
     outstandingUsd: byKind['PAYMENT_PENDING'] ?? 0,
     refundExposureUsd: refunds,
     taxEstimateUsd,
-    testTransactionsUsd: byKind['TEST_TRANSACTION'] ?? 0,
+    testTransactionsUsd: (byKind['TEST_TRANSACTION'] ?? 0) + mislabelledTestUsd,
     failedPaymentsUsd: byKind['PAYMENT_FAILED'] ?? 0,
     byKind,
   };
