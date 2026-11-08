@@ -144,3 +144,30 @@ build, database or processes.
   static screen, timeout, JSON-only output. New: `assessTrust` (capability 42).
   Gmail gained `createDraft`/`getDraft`; HubSpot gained get/update/find/company/
   associate/deal/delete.
+
+## 2026-11-08 live production probe (post-push to main, commit 7190db4)
+
+- **The public host now serves TAREQ, not VoiceProxy.** `GET /` on
+  `https://tareq-ai-production.up.railway.app/` returns
+  `<title>TAREQ — Owner Command Center</title>` and the bilingual dashboard.
+  `GET /health` returns `{"service":"tareq",...}`. Phase 2's "wrong app" symptom
+  is resolved on the live host; the earlier VoiceProxy serving was a stale
+  deployment that has now been replaced by the `main` build.
+- **The database is unreachable from production.** `/health` reports
+  `Can't reach database server at db.ljejjdvkgohknbnyguzt.supabase.co:5432`.
+  The Railway `DATABASE_URL` uses the **direct** connection host, which is
+  IPv6-only and cannot be reached from Railway. Fix: set `DATABASE_URL` to the
+  Supavisor pooler host `aws-0-ap-south-1.pooler.supabase.com` (port 5432
+  session or 6543 transaction) with user `postgres.ljejjdvkgohknbnyguzt` and
+  `?schema=tareq&pgbouncer=true&connection_limit=1`.
+- **CRITICAL: `TAREQ_AUTH_BYPASS=1` is ON in production.** `GET /` carries
+  `data-auth-bypass="1"`, and owner-only routes answer without a bearer token
+  (`GET /capabilities` -> 200). The Owner Command Center is currently open to
+  anyone with the URL. Remove/disable `TAREQ_AUTH_BYPASS` in Railway env before
+  treating production as live.
+- Routes that touch the DB (`/finance`, `/mode`, `/tasks`, `/auth/login`)
+  return HTTP 500 while the DB is down; `/capabilities` and `/integrations`
+  return 200 because they do not need the DB.
+- Two Railway services build this repo (`precious-achievement`,
+  `bountiful-forgiveness`); the `7190db4` deploy succeeded on one and failed on
+  the other. The domain owner is the service that succeeded.
