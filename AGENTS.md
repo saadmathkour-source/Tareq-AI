@@ -219,3 +219,35 @@ topology, so future sessions do not re-derive it:
 - This repo's root Next.js app is a **scaffold**: `src/app/api/stripe/webhook`
   verifies the signature but does nothing on `checkout.session.completed` (logs
   only), and `STRIPE_PRO_PRICE_ID` is unset so `/api/stripe/checkout` 400s.
+
+## 2026-11-08 SESSION 2 — TAREQ engine verified; deployment regression found
+
+Verified by running the real engine locally against the production Supabase DB
+(`ljejjdvkgohknbnyguzt`) with the compiled build (`npm run build` → `node
+dist/src/app/server.js`, 24 handlers, embedded worker ON):
+
+- POST /plan with a commercial goal produced a real task graph and the worker
+  **executed all 6 tasks successfully** (plan + market_research → genome →
+  demand_validation → economic_analysis → risk_review) via OpenAI/DeepSeek.
+  TAREQ is a genuine autonomous agent, not a chatbot.
+- Tool execution is permission-gated (`tools/registry.ts` → `authorize()`);
+  modes are OBSERVE/PLAN/SANDBOX/SUPERVISED/AUTONOMOUS with `requiresApproval`
+  classes. Operating mode is live `SUPERVISED`.
+- **Fixed (commit b5c73f0):** `/finance` reported $100 gross revenue that did
+  not exist in Stripe. Cause: a legacy fixture ledger row
+  (`externalId it_test_pi_1`, `evidence.webhook evt_1`) marked
+  REVENUE_CONFIRMED. `summary()` now excludes any external id containing the
+  Stripe `_test_` marker and surfaces it as test volume. Regression test:
+  `tests/ledger-honesty.test.ts`. Revenue now correctly $0.
+
+**LIVE DEPLOYMENT REGRESSION (Railway config, not repo):** during this session
+`tareq-ai-production.up.railway.app` began serving the **root Next.js VoiceProxy
+scaffold** instead of TAREQ: `/` → `<title>VoiceProxy AI</title>` with
+`/_next/static`, `/health` → **404**, `/api/health` → **503**. The repo's root
+`railway.toml` correctly sets `builder=DOCKERFILE`,
+`dockerfilePath=tareq/Dockerfile`, so the repo is right — the Railway **service
+settings** are wrong (Root Directory / Config File Path / a failing Docker
+build caused a fallback). Fix in Railway: either point the service's Root
+Directory at `tareq/` (uses `tareq/railway.toml`, Nixpacks) or clear Root
+Directory and set Config File Path to `/railway.toml` (Dockerfile build). Do NOT
+let it build the repo root with Nixpacks.
