@@ -251,3 +251,38 @@ build caused a fallback). Fix in Railway: either point the service's Root
 Directory at `tareq/` (uses `tareq/railway.toml`, Nixpacks) or clear Root
 Directory and set Config File Path to `/railway.toml` (Dockerfile build). Do NOT
 let it build the repo root with Nixpacks.
+
+## 2026-11-09 SESSION 3 — Phase 15.1 production runtime repair
+
+Railway auto-deploys `main` (GitHub deployment events confirm). Fixes pushed and
+verified live:
+
+- **Auth bypass (Issue 1):** the live deployment was fully open — unauthenticated
+  `/tasks` and `/finance` returned 200 with `data-auth-bypass="1"`. Root cause: a
+  forgotten `TAREQ_AUTH_BYPASS=1`. Fix (`477b1a7`): startup refuses the bypass
+  when an owner exists (and fails closed if owner state is unreadable). Owner
+  login verified working first, so no lockout. **Live now: unauth routes 401, no
+  bypass marker.** Owner action still recommended: set `TAREQ_AUTH_BYPASS=0`.
+- **Prisma/OpenSSL (Issue 2):** pinned `binaryTargets = ["native",
+  "debian-openssl-3.0.x"]` in the schema and installed `openssl` +
+  `ca-certificates` in both Docker stages (and `nixpacks.toml`). `node:22-slim`
+  is Debian 12 (OpenSSL 3); the earlier "defaulting to openssl-1.1.x" warning is
+  gone and only the 3.0.x engine is generated. `prisma validate` passes; the
+  live DB is reachable (`/health` database ok:true).
+- **Worker (Issue 3):** `maxTasks: 0` means **unlimited** (run forever), NOT
+  disabled — confirmed by reading `orchestrator.run`. Added an opt-in
+  `TAREQ_WORKER_CONCURRENCY` (default 1) plus graceful SIGTERM/SIGINT stop.
+  Duplicate execution is impossible: `claimNext` uses `FOR UPDATE SKIP LOCKED`.
+- **Engine (Issue 4):** ran a real non-financial goal live
+  (`POST /plan` → parent + 5 tasks). The production worker (worker-382123aa)
+  claimed each in dependency order and all 6 reached `SUCCEEDED`; OpenAI
+  `gpt-4o-mini-2024-07-18` was called (proves a real provider call). Results
+  persisted and are visible via `/tasks` (stats SUCCEEDED:53+).
+- **Queue test isolation:** queue tests run against the shared prod DB, so the
+  live worker used to steal their rows. Rows are now tagged `QTEST-`; the worker
+  excludes that prefix and the tests include only their own prefix. Suite is
+  green (179/179) even with the live worker running.
+- Added `GET /api/health` (alias of `/health`).
+
+Operator actions that need Railway dashboard access (no API token available):
+set `TAREQ_AUTH_BYPASS=0`; optionally `TAREQ_WORKER_CONCURRENCY=2..4`.
