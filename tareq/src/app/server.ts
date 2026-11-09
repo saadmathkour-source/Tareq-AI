@@ -44,9 +44,54 @@ const PORT = Number(process.env.PORT ?? 3300);
  * recovery switch: it removes the last barrier between a public URL and owner
  * powers (spending, outreach, publishing), so it is logged loudly at startup
  * and MUST be switched off as soon as access is restored. Default: off.
+ *
+ * `bypassRequested` is the raw environment flag. `authBypass()` is the flag
+ * *after* the safety gate: even when the flag is set, the bypass is refused
+ * once an owner account exists, because the owner can sign in normally — a
+ * forgotten `TAREQ_AUTH_BYPASS=1` must never leave a live deployment open.
  */
-function authBypass(): boolean {
+function bypassRequested(): boolean {
   return process.env.TAREQ_AUTH_BYPASS === '1';
+}
+
+let bypassAllowed = false;
+
+function authBypass(): boolean {
+  return bypassRequested() && bypassAllowed;
+}
+
+/**
+ * Decide whether the bypass may take effect. It is permitted ONLY when no owner
+ * exists (genuine lockout recovery); otherwise it is force-disabled and warned
+ * about loudly. `countOwners` is injectable so the decision is unit-testable
+ * without touching the database.
+ */
+export async function resolveAuthBypass(countOwners: () => Promise<number> = () => prisma.owner.count()): Promise<void> {
+  if (!bypassRequested()) {
+    logger.info('owner auth bypass off');
+    return;
+  }
+  try {
+    const owners = await countOwners();
+    if (owners > 0) {
+      bypassAllowed = false;
+      logger.error(
+        'OWNER AUTH BYPASS REFUSED: TAREQ_AUTH_BYPASS=1 is set but an owner already exists. ' +
+          'Enforcing normal sign-in. Set TAREQ_AUTH_BYPASS=0 in production.',
+        { owners },
+      );
+      return;
+    }
+  } catch (err) {
+    // Fail closed: if we cannot confirm there is no owner, do not open the app.
+    bypassAllowed = false;
+    logger.error('OWNER AUTH BYPASS REFUSED: could not verify owner state; failing closed', {
+      error: (err as Error).message,
+    });
+    return;
+  }
+  bypassAllowed = true;
+  logger.warn('OWNER AUTH BYPASS ENABLED (no owner exists): every owner-only route is open for lockout recovery. Create the owner and set TAREQ_AUTH_BYPASS=0.');
 }
 
 const BYPASS_OWNER: OwnerIdentity = {
@@ -434,9 +479,7 @@ async function startEmbeddedWorker(): Promise<void> {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   env();
-  if (authBypass()) {
-    logger.warn('OWNER AUTH BYPASS ENABLED (TAREQ_AUTH_BYPASS=1): every owner-only route is open. Switch it off once access is restored.');
-  }
+  await resolveAuthBypass();
   server.listen(PORT, () => logger.info('tareq api listening', { port: PORT, authBypass: authBypass() }));
   if (embeddedWorkerEnabled()) void startEmbeddedWorker();
 }
