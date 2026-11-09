@@ -2,6 +2,76 @@
 
 Reverse-chronological. Every entry records what was actually run and observed.
 
+## Phase 17 — public checkout & real customer delivery
+
+### What a real buyer can now do
+- `GET /buy/:slug` (landing) → CTA goes to `GET /checkout/:slug`, a real purchase
+  form whose price is read from the server-side product row.
+- `POST /checkout/:slug` creates (or safely reuses) an order and a Stripe
+  Checkout Session tied to it by `client_reference_id`; the buyer is 303-redirected
+  to Stripe. Rate-limited per IP (default 10/min) and per email (3/10min).
+- After payment, the signature-verified webhook activates the order; the worker
+  generates and QA-checks the artifact, stores it, mints a hashed expiring
+  download token, and emails the buyer a `/download/<token>` link.
+- `/thanks?order=…` and `/orders/status?order=…` show the **real** status and
+  never claim an email that has not been sent. The buyer email is never exposed.
+- `GET /download/<token>` redeems the token (hash-only lookup, TTL default 7d)
+  and serves only that order's artifact; `?format=json` downloads it.
+
+### Money and safety invariants (unchanged)
+- No money is recorded outside `handleWebhook`; signature verification (raw body,
+  timestamp tolerance, multi-`v1`, `timingSafeEqual`) is untouched.
+- The browser supplies only email + free-form requirements; price and currency
+  come from the product row. A currency or amount mismatch still refuses to
+  activate. A replay never re-enqueues delivery.
+- An email failure keeps the artifact and sets `EMAIL_FAILED`; the order handler
+  throws so the durable queue retries the send (rotating the token) without
+  regenerating anything.
+
+### Schema (additive only; pushed to production)
+- `OrderStatus` += `DELIVERY_PENDING`, `EMAIL_FAILED`.
+- `Order.checkoutUrl`; `DeliveryArtifact.downloadTokenHash` (unique),
+  `downloadExpiresAt`, `emailStatus`, `emailAttempts`, `emailLastError`,
+  `emailSentAt`.
+- `prisma migrate diff` shows only `ADD COLUMN` / `ADD VALUE` / `CREATE UNIQUE
+  INDEX` — no drops. Applied with `prisma db push` over the direct (5432) URL.
+
+### Tests
+- New `tests/checkout-delivery.test.ts` (23 cases): validation, checkout pricing
+  and reuse, webhook activation/forgery/replay/mismatch, delivery + email retry,
+  download-token isolation/expiry, and the storefront pages.
+- The suite now runs with `--test-concurrency=1`: the DB-writing files share one
+  database and assert exact global ledger deltas, so running them in parallel let
+  one file's rows perturb another's `summary()` snapshot.
+- `npm test` → **239 pass / 0 fail**; `npm run typecheck` → clean.
+
+### Production database (verified this phase)
+- `DATABASE_URL` (pooled, 6543) and `DIRECT_URL` (direct, 5432) both connect to
+  the Supabase project `postgres`. The Phase 17 columns were absent, so the
+  additive diff was applied with `prisma db push` over the direct URL and the
+  Prisma Client regenerated. `orders.checkout_url`, the `delivery_artifacts`
+  token/email columns and the two new `OrderStatus` values are now present.
+- Note: `db push` hangs against the pooled (pgbouncer) URL — DDL must use the
+  direct 5432 connection, which is what `directUrl` is for.
+
+### Deploy status (blocked — owner action required)
+- The Phase 17 commit is ready on local `main` but **could not be pushed**. The
+  credentials available in this environment are all insufficient:
+  - The refreshed `GITHUB_TOKEN` is a **fine-grained token with read-only
+    Contents** (empty `x-oauth-scopes`; `POST /git/blobs` → `403 Resource not
+    accessible by integration`), and the OpenHands GitHub App reports **zero
+    installations** for this account.
+  - Two user-supplied `ghp_…` tokens were tried (via `git remote set-url` and
+    the `x-oauth-basic` form). Both fail: `git push` returns `Invalid username
+    or token` and the GitHub API returns `401 Bad credentials` (also on the
+    `git-receive-pack` handshake). The repository is **public**, so a token-less
+    `git ls-remote` still succeeds — which is why the failure is easy to miss.
+- A valid credential is required to push: a classic PAT with the `repo` scope,
+  or a fine-grained token with **Contents: Read and write** on
+  `saadmathkour-source/Tareq-AI`. The remote is configured as
+  `https://<token>@github.com/saadmathkour-source/Tareq-AI.git`; swapping in a
+  working token and running `git push origin main` triggers the Railway deploy.
+
 ## 2026-11-07 — Targeted production-readiness & real-world capability audit
 
 ### TASK 1 — real market research (live external calls)

@@ -13,7 +13,7 @@
     "db:format": "prisma format",
     "typecheck": "tsc --noEmit",
     "build": "prisma generate && tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
-    "test": "TAREQ_USE_TEST_DB=1 node --test --experimental-strip-types tests/*.test.ts",
+    "test": "TAREQ_USE_TEST_DB=1 node --test --experimental-strip-types --test-concurrency=1 tests/*.test.ts",
     "worker": "node --experimental-strip-types worker/main.ts",
     "api": "node --experimental-strip-types src/app/server.ts",
     "seed:owner": "node --experimental-strip-types scripts/seed-owner.ts",

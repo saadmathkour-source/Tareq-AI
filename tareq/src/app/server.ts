@@ -27,19 +27,23 @@ import { TareqError, ForbiddenError, ValidationError } from '../lib/core/errors.
 import { plan, planFromCommand } from '../lib/planner/index.ts';
 import { runMission } from '../lib/commercial/mission.ts';
 import { status as gmailStatus } from '../lib/integrations/gmail.ts';
+import { status as emailStatus } from '../lib/integrations/email.ts';
 import { status as hubspotStatus } from '../lib/integrations/hubspot.ts';
 import { status as stripeStatus, handleWebhook, createTestPaymentLink } from '../lib/integrations/stripe.ts';
 import { listProducts, getPublishedProduct, seedProducts } from '../lib/commercial/products.ts';
 import { generateLanding } from '../lib/commercial/landing.ts';
 import { createOrder, attachCheckout, listOrders, orderStats } from '../lib/commercial/orders.ts';
-import { getArtifact } from '../lib/commercial/delivery.ts';
+import { getArtifact, redeemDownloadToken } from '../lib/commercial/delivery.ts';
+import { createPublicCheckout, getPublicOrderStatus } from '../lib/commercial/checkout.ts';
+import { rateLimit } from '../lib/security/rate-limit.ts';
+import { publicBaseUrl } from '../lib/commercial/delivery.ts';
 import { commercialOverview } from '../lib/commercial/overview.ts';
 import { run } from '../lib/core/orchestrator.ts';
 import { bootstrapWorker } from '../lib/core/worker-boot.ts';
 import { startScheduler } from '../lib/queue/scheduler.ts';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { shopHtml, thanksHtml, legalHtml, notFoundHtml } from './storefront.ts';
+import { shopHtml, thanksHtml, legalHtml, notFoundHtml, buyHtml, downloadHtml } from './storefront.ts';
 
 const PORT = Number(process.env.PORT ?? 3300);
 
@@ -156,6 +160,50 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
   }
 }
 
+/** Read a raw body (up to a small cap) as UTF-8 text, for form submissions. */
+async function readRawBody(req: IncomingMessage, maxBytes = 16 * 1024): Promise<string> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of req) {
+    total += (chunk as Buffer).length;
+    if (total > maxBytes) throw new ValidationError('request body too large');
+    chunks.push(chunk as Buffer);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+/** Parse a form body that may be urlencoded (browser form) or JSON. */
+export function parseFormBody(raw: string, contentType: string): Record<string, unknown> {
+  const ct = (contentType || '').toLowerCase();
+  if (ct.includes('application/json')) {
+    try {
+      return JSON.parse(raw || '{}') as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of new URLSearchParams(raw)) out[k] = v;
+  return out;
+}
+
+/** Best-effort client IP for rate limiting (behind Railway's proxy). */
+function clientIp(req: IncomingMessage): string {
+  const fwd = req.headers['x-forwarded-for'];
+  const first = Array.isArray(fwd) ? fwd[0] : fwd;
+  if (typeof first === 'string' && first.length > 0) return first.split(',')[0]!.trim();
+  return req.socket.remoteAddress ?? 'unknown';
+}
+
+/** Public base URL for building redirect links, from config or the request. */
+function baseUrlFromReq(req: IncomingMessage): string {
+  const configured = publicBaseUrl('');
+  if (configured) return configured;
+  const proto = (req.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim() || 'http';
+  const host = (req.headers['host'] as string | undefined) || `localhost:${PORT}`;
+  return `${proto}://${host}`;
+}
+
 function bearer(req: IncomingMessage): string | null {
   const h = req.headers['authorization'];
   if (typeof h !== 'string' || !h.startsWith('Bearer ')) return null;
@@ -222,6 +270,7 @@ route('GET', '/capabilities', true, async (_req, res) => {
 route('GET', '/integrations', true, async (_req, res) => {
   json(res, 200, {
     gmail: gmailStatus(),
+    email: emailStatus(),
     hubspot: hubspotStatus(),
     stripe: stripeStatus(),
     telegram: { configured: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_OWNER_ID) },
@@ -540,8 +589,81 @@ const server = createServer(async (req, res) => {
       return sendHtml(res, 200, refreshed?.landingHtml ?? notFoundHtml('Product not found'));
     }
 
+    // --- public checkout (Phase 17) ---------------------------------------
+    // Purchase form. The price shown is read from the server-side product row.
+    if (req.method === 'GET' && url.pathname.startsWith('/checkout/')) {
+      const slug = decodeURIComponent(url.pathname.slice('/checkout/'.length));
+      const product = await getPublishedProduct(slug);
+      if (!product) return sendHtml(res, 404, notFoundHtml('Product not found'));
+      return sendHtml(res, 200, buyHtml({ slug: product.slug, name: product.name, tagline: product.tagline, priceUsd: Number(product.priceUsd), currency: product.currency, requirements: product.requirements }));
+    }
+
+    // Create the order + Stripe Checkout Session, then send the buyer to pay.
+    // Rate-limited per IP and per email so the endpoint cannot be flooded.
+    if (req.method === 'POST' && url.pathname.startsWith('/checkout/')) {
+      const slug = decodeURIComponent(url.pathname.slice('/checkout/'.length));
+      const raw = await readRawBody(req);
+      const form = parseFormBody(raw, String(req.headers['content-type'] ?? ''));
+      const email = String(form['email'] ?? '');
+      const ip = clientIp(req);
+
+      const ipLimit = rateLimit(`checkout:ip:${ip}`, Number(process.env.TAREQ_CHECKOUT_RATE_LIMIT ?? 10) || 10, Number(process.env.TAREQ_CHECKOUT_RATE_WINDOW_MS ?? 60_000) || 60_000);
+      if (!ipLimit.ok) {
+        res.setHeader('retry-after', String(Math.ceil(ipLimit.retryAfterMs / 1000)));
+        return sendHtml(res, 429, notFoundHtml('Too many checkout attempts. Please wait a moment and try again.'));
+      }
+      if (email) {
+        const emailLimit = rateLimit(`checkout:email:${email.toLowerCase()}`, 3, 10 * 60_000);
+        if (!emailLimit.ok) return sendHtml(res, 429, notFoundHtml('Too many checkout attempts for this email. Please try again shortly.'));
+      }
+
+      try {
+        const result = await createPublicCheckout({
+          slug,
+          email,
+          requirements: { topic: form['topic'], niche: form['niche'], market: form['market'], segment: form['segment'], geography: form['geography'], notes: form['notes'] },
+          baseUrl: baseUrlFromReq(req),
+        });
+        res.writeHead(303, { location: result.url });
+        res.end();
+        return;
+      } catch (err) {
+        logger.warn('public checkout rejected', { error: (err as Error).message });
+        return sendHtml(res, 400, notFoundHtml((err as Error).message));
+      }
+    }
+
+    // Secure deliverable download. The token is unguessable and per-order, so a
+    // buyer can only ever reach their own artifact.
+    if (req.method === 'GET' && url.pathname.startsWith('/download/')) {
+      const token = decodeURIComponent(url.pathname.slice('/download/'.length));
+      const dl = rateLimit(`download:${clientIp(req)}`, 60, 60_000);
+      if (!dl.ok) return sendHtml(res, 429, notFoundHtml('Too many requests. Please wait a moment.'));
+      const found = await redeemDownloadToken(token);
+      if (!found) return sendHtml(res, 404, notFoundHtml('This download link is invalid or has expired.'));
+      if (url.searchParams.get('format') === 'json') {
+        res.writeHead(200, {
+          'content-type': 'application/json; charset=utf-8',
+          'content-disposition': `attachment; filename="${found.name.replace(/[^\w.-]/g, '_')}"`,
+        });
+        res.end(found.ref ?? '{}');
+        return;
+      }
+      return sendHtml(res, 200, downloadHtml(found.name, found.ref ?? ''));
+    }
+
+    // Public, non-sensitive status for the buyer's own order page.
+    if (req.method === 'GET' && url.pathname === '/orders/status') {
+      const id = url.searchParams.get('order') ?? '';
+      const st = id ? await getPublicOrderStatus(id) : null;
+      if (!st) return json(res, 404, { error: 'order not found' });
+      return json(res, 200, st);
+    }
+
     if (req.method === 'GET' && url.pathname === '/thanks') {
-      return sendHtml(res, 200, thanksHtml(url.searchParams.get('order') ?? ''));
+      const orderId = url.searchParams.get('order') ?? '';
+      const st = orderId ? await getPublicOrderStatus(orderId) : null;
+      return sendHtml(res, 200, thanksHtml(orderId, st?.status ?? null));
     }
 
     if (req.method === 'GET' && url.pathname.startsWith('/legal/')) {

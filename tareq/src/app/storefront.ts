@@ -17,7 +17,12 @@ header{background:#fff;border-bottom:1px solid var(--line);padding:16px 0}header
 main{background:#fff;border:1px solid var(--line);border-radius:14px;margin:28px auto;max-width:880px;padding:32px}
 h1{font-size:1.9rem;line-height:1.2}h2{font-size:1.15rem;margin-top:1.6em}a{color:var(--accent)}
 .card{border:1px solid var(--line);border-radius:12px;padding:20px;margin:14px 0}
-.price{font-weight:700}.muted{color:var(--muted);font-size:.92rem}.btn{display:inline-block;background:var(--accent);color:#fff;text-decoration:none;padding:12px 18px;border-radius:9px;font-weight:600}
+.price{font-weight:700}.muted{color:var(--muted);font-size:.92rem}.btn{display:inline-block;background:var(--accent);color:#fff;text-decoration:none;padding:12px 18px;border-radius:9px;font-weight:600;border:0;cursor:pointer;font-size:1rem}
+.buyform{margin:22px 0;display:grid;gap:8px;max-width:460px}
+.buyform label{font-weight:600;font-size:.95rem}
+.buyform input{padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:1rem;font-family:inherit}
+.buyform .btn{margin-top:8px;justify-self:start}
+pre.doc{background:#0f172a;color:#e2e8f0;padding:16px;border-radius:10px;overflow:auto;font-size:12.5px;line-height:1.5}
 footer{color:var(--muted);font-size:.85rem;max-width:880px;margin:0 auto 40px;padding:0 20px}`;
 
 function shell(title: string, body: string): string {
@@ -49,18 +54,107 @@ export function shopHtml(products: ShopProduct[]): string {
   return shell('Shop — TAREQ AI', `<h1>Products</h1><p class="muted">Fixed-scope, automated research services delivered by email after verified payment.</p>${cards}`);
 }
 
-export function thanksHtml(orderId: string): string {
+/**
+ * Post-purchase page. It shows the order's REAL status — it never claims the
+ * deliverable was emailed before that actually happened. Only the status word
+ * and the buyer's own order reference are shown; no other customer's data is
+ * ever exposed.
+ */
+export function thanksHtml(orderId: string, status?: string | null): string {
+  const state: Record<string, { title: string; body: string }> = {
+    AWAITING_PAYMENT: {
+      title: 'Payment is being verified',
+      body: 'We have not received confirmation from Stripe yet. This page updates once your payment is confirmed — you can refresh it in a moment.',
+    },
+    PAID: {
+      title: 'Payment confirmed',
+      body: 'Thank you — your payment is confirmed. We are generating your report now; you will receive it by email shortly.',
+    },
+    IN_DELIVERY: {
+      title: 'Your report is being created',
+      body: 'Your payment is confirmed and your report is being generated. This usually takes a few minutes; you will receive it by email.',
+    },
+    DELIVERY_PENDING: {
+      title: 'Your report is ready — email on its way',
+      body: 'Your report has been generated. We are sending your confirmation email now.',
+    },
+    EMAIL_FAILED: {
+      title: 'Your report is ready — email delayed',
+      body: 'Your report has been generated successfully, but the confirmation email could not be sent yet. We are retrying. If you do not receive it soon, contact support with your order reference and we will send it manually.',
+    },
+    DELIVERED: {
+      title: 'Your report has been emailed',
+      body: 'Your report has been generated and emailed to the address you used at checkout. If you cannot find it, check your spam folder, then contact support with your order reference.',
+    },
+    REFUNDED: {
+      title: 'Order refunded',
+      body: 'This order was refunded. If you have any questions, contact support with your order reference.',
+    },
+    FAILED: {
+      title: 'We could not complete your order',
+      body: 'Something went wrong while producing your report. You will not be charged for a failed delivery; contact support with your order reference and we will resolve it.',
+    },
+    CANCELLED: {
+      title: 'Order cancelled',
+      body: 'This order was cancelled. No payment was taken.',
+    },
+  };
+  const s = status && state[status] ? state[status]! : {
+    title: 'Thank you',
+    body: 'Your payment is being verified. As soon as Stripe confirms it, your report is generated and emailed to you.',
+  };
   return shell(
-    'Thank you — TAREQ AI',
-    `<h1>Thank you</h1>
-<p>Your payment is being verified. As soon as Stripe confirms it, your report is generated and emailed to you — usually within a few minutes.</p>
+    `${s.title} — TAREQ AI`,
+    `<h1>${esc(s.title)}</h1>
+<p>${esc(s.body)}</p>
 ${orderId ? `<p class="muted">Order reference: ${esc(orderId)}</p>` : ''}
+<p><a href="/shop">Back to shop</a> · <a href="mailto:support@tareq.ai">Contact support</a></p>`,
+  );
+}
+
+/**
+ * Purchase page for a product: an email field that POSTs to the public checkout
+ * endpoint. The price shown comes from the server-side product row, so the page
+ * cannot be tricked into advertising a different price than the one charged.
+ */
+export function buyHtml(p: { slug: string; name: string; tagline: string; priceUsd: unknown; currency?: string; requirements?: unknown }): string {
+  const price = Number(p.priceUsd);
+  const priceLabel = `$${price.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  const reqs = Array.isArray(p.requirements) ? (p.requirements as string[]) : [];
+  const reqList = reqs.length ? `<h2>What we need from you</h2><ul>${reqs.map((r) => `<li>${esc(String(r))}</li>`).join('')}</ul>` : '';
+  return shell(
+    `Buy ${p.name} — TAREQ AI`,
+    `<h1>${esc(p.name)}</h1>
+<p class="muted">${esc(p.tagline)}</p>
+<p class="price">${esc(priceLabel)} <span class="muted">one-time · ${esc(p.currency ?? 'USD')}</span></p>
+${reqList}
+<form method="POST" action="/checkout/${esc(p.slug)}" class="buyform">
+  <label for="email">Your email (we send the report here)</label>
+  <input id="email" name="email" type="email" required maxlength="254" placeholder="you@company.com" autocomplete="email">
+  <label for="topic">The niche or market to analyse</label>
+  <input id="topic" name="topic" type="text" maxlength="500" placeholder="e.g. AI bookkeeping for dental clinics">
+  <button class="btn" type="submit">Pay ${esc(priceLabel)} with Stripe</button>
+</form>
+<p class="muted">Secure payment via Stripe. Work begins only after Stripe confirms payment; the deliverable is emailed after verification. If we cannot deliver, you get a full refund.</p>
 <p><a href="/shop">Back to shop</a></p>`,
   );
 }
 
 export function notFoundHtml(msg: string): string {
   return shell('Not found — TAREQ AI', `<h1>${esc(msg)}</h1><p><a href="/shop">Back to shop</a></p>`);
+}
+
+/** The buyer's own deliverable page, reached only via a valid download token. */
+export function downloadHtml(name: string, content: string): string {
+  return shell(
+    `Your deliverable — TAREQ AI`,
+    `<h1>Your deliverable is ready</h1>
+<p class="muted">${esc(name)}</p>
+<p><a class="btn" href="?format=json" download>Download as JSON</a></p>
+<h2>Preview</h2>
+<pre class="doc">${esc(content)}</pre>
+<p class="muted">This page is private to your order. Do not share the link — anyone with it can view the report.</p>`,
+  );
 }
 
 const LEGAL: Record<string, { title: string; body: string }> = {

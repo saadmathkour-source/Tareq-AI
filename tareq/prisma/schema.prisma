@@ -2,7 +2,7 @@
 // Dedicated Postgres schema, isolated from VoiceProxy AI's `public` schema.
 
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   // Pin the engine to the Debian OpenSSL 3.0 target used by the production
   // image (node:22-slim is Debian 12). Without this, `prisma generate` runs on
   // whatever host builds the image and Prisma can fall back to guessing
@@ -23,15 +23,15 @@ datasource db {
 
 /// The single owner account. Exactly one is expected; others are operators.
 model Owner {
-  id            String   @id @default(uuid()) @db.Uuid
-  email         String   @unique
-  passwordHash  String   @map("password_hash")
-  displayName   String?  @map("display_name")
-  locale        String   @default("ar")
-  isPrimary     Boolean  @default(false) @map("is_primary")
-  mfaSecret     String?  @map("mfa_secret")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  displayName  String?  @map("display_name")
+  locale       String   @default("ar")
+  isPrimary    Boolean  @default(false) @map("is_primary")
+  mfaSecret    String?  @map("mfa_secret")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   sessions Session[]
 
@@ -40,14 +40,14 @@ model Owner {
 }
 
 model Session {
-  id         String    @id @default(uuid()) @db.Uuid
-  ownerId    String    @map("owner_id") @db.Uuid
-  tokenHash  String    @unique @map("token_hash")
-  userAgent  String?   @map("user_agent")
-  ip         String?
-  expiresAt  DateTime  @map("expires_at")
-  revokedAt  DateTime? @map("revoked_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
+  id        String    @id @default(uuid()) @db.Uuid
+  ownerId   String    @map("owner_id") @db.Uuid
+  tokenHash String    @unique @map("token_hash")
+  userAgent String?   @map("user_agent")
+  ip        String?
+  expiresAt DateTime  @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   owner Owner @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
@@ -63,9 +63,9 @@ enum OperatingMode {
   SANDBOX
   SUPERVISED
   AUTONOMOUS
+
   @@schema("tareq")
 }
-
 
 /// Global runtime configuration, one row per key.
 model Setting {
@@ -103,26 +103,26 @@ enum ApprovalStatus {
   REJECTED
   EXPIRED
   CANCELLED
+
   @@schema("tareq")
 }
 
-
 model Approval {
-  id          String         @id @default(uuid()) @db.Uuid
-  title       String
-  action      String
-  reason      String
-  costUsd     Decimal?       @map("cost_usd") @db.Decimal(12, 4)
-  risk        String         @default("medium")
-  affected    Json           @default("[]")
-  expected    String?        @map("expected")
-  rollback    String?
-  status      ApprovalStatus @default(PENDING)
-  decidedBy   String?        @map("decided_by")
-  decidedAt   DateTime?      @map("decided_at")
-  decisionNote String?       @map("decision_note")
-  taskId      String?        @map("task_id") @db.Uuid
-  createdAt   DateTime       @default(now()) @map("created_at")
+  id           String         @id @default(uuid()) @db.Uuid
+  title        String
+  action       String
+  reason       String
+  costUsd      Decimal?       @map("cost_usd") @db.Decimal(12, 4)
+  risk         String         @default("medium")
+  affected     Json           @default("[]")
+  expected     String?        @map("expected")
+  rollback     String?
+  status       ApprovalStatus @default(PENDING)
+  decidedBy    String?        @map("decided_by")
+  decidedAt    DateTime?      @map("decided_at")
+  decisionNote String?        @map("decision_note")
+  taskId       String?        @map("task_id") @db.Uuid
+  createdAt    DateTime       @default(now()) @map("created_at")
 
   @@index([status])
   @@map("approvals")
@@ -143,42 +143,42 @@ enum TaskStatus {
   RETRYING
   DEAD
   CANCELLED
+
   @@schema("tareq")
 }
-
 
 enum TaskPriority {
   CRITICAL
   HIGH
   NORMAL
   LOW
+
   @@schema("tareq")
 }
 
-
 model Task {
-  id           String       @id @default(uuid()) @db.Uuid
-  kind         String
-  idempotencyKey String?    @unique @map("idempotency_key")
-  status       TaskStatus   @default(PENDING)
-  priority     TaskPriority @default(NORMAL)
-  payload      Json         @default("{}")
-  result       Json?
-  error        String?
-  attempts     Int          @default(0)
-  maxAttempts  Int          @default(3) @map("max_attempts")
+  id               String       @id @default(uuid()) @db.Uuid
+  kind             String
+  idempotencyKey   String?      @unique @map("idempotency_key")
+  status           TaskStatus   @default(PENDING)
+  priority         TaskPriority @default(NORMAL)
+  payload          Json         @default("{}")
+  result           Json?
+  error            String?
+  attempts         Int          @default(0)
+  maxAttempts      Int          @default(3) @map("max_attempts")
   /// Shortest-possible next run time. Enables retry backoff and scheduling.
-  runAt        DateTime     @default(now()) @map("run_at")
-  lockedBy     String?      @map("locked_by")
-  lockedAt     DateTime?    @map("locked_at")
-  heartbeatAt  DateTime?    @map("heartbeat_at")
-  dependsOn    String[]     @default([]) @map("depends_on")
-  estimatedCostUsd Decimal? @map("estimated_cost_usd") @db.Decimal(12, 4)
-  parentId     String?      @map("parent_id") @db.Uuid
-  opportunityId String?     @map("opportunity_id") @db.Uuid
-  createdAt    DateTime     @default(now()) @map("created_at")
-  updatedAt    DateTime     @updatedAt @map("updated_at")
-  finishedAt   DateTime?    @map("finished_at")
+  runAt            DateTime     @default(now()) @map("run_at")
+  lockedBy         String?      @map("locked_by")
+  lockedAt         DateTime?    @map("locked_at")
+  heartbeatAt      DateTime?    @map("heartbeat_at")
+  dependsOn        String[]     @default([]) @map("depends_on")
+  estimatedCostUsd Decimal?     @map("estimated_cost_usd") @db.Decimal(12, 4)
+  parentId         String?      @map("parent_id") @db.Uuid
+  opportunityId    String?      @map("opportunity_id") @db.Uuid
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  finishedAt       DateTime?    @map("finished_at")
 
   attemptsLog TaskAttempt[]
 
@@ -221,16 +221,16 @@ model DeadLetter {
 
 /// Recurring schedule definitions (cron). The scheduler enqueues due tasks.
 model Schedule {
-  id         String    @id @default(uuid()) @db.Uuid
-  name       String    @unique
-  cron       String
-  timezone   String    @default("UTC")
-  taskKind   String    @map("task_kind")
-  payload    Json      @default("{}")
-  enabled    Boolean   @default(true)
-  lastRunAt  DateTime? @map("last_run_at")
-  nextRunAt  DateTime? @map("next_run_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String    @unique
+  cron      String
+  timezone  String    @default("UTC")
+  taskKind  String    @map("task_kind")
+  payload   Json      @default("{}")
+  enabled   Boolean   @default(true)
+  lastRunAt DateTime? @map("last_run_at")
+  nextRunAt DateTime? @map("next_run_at")
+  createdAt DateTime  @default(now()) @map("created_at")
 
   @@index([enabled, nextRunAt])
   @@map("schedules")
@@ -257,18 +257,18 @@ model Event {
 
 /// One row per model call. Source of truth for LLM cost accounting.
 model ProviderCall {
-  id            String   @id @default(uuid()) @db.Uuid
-  provider      String
-  model         String
-  purpose       String?
-  taskId        String?  @map("task_id") @db.Uuid
-  inputTokens   Int      @default(0) @map("input_tokens")
-  outputTokens  Int      @default(0) @map("output_tokens")
-  costUsd       Decimal  @default(0) @map("cost_usd") @db.Decimal(12, 6)
-  latencyMs     Int      @default(0) @map("latency_ms")
-  ok            Boolean  @default(true)
-  error         String?
-  createdAt     DateTime @default(now()) @map("created_at")
+  id           String   @id @default(uuid()) @db.Uuid
+  provider     String
+  model        String
+  purpose      String?
+  taskId       String?  @map("task_id") @db.Uuid
+  inputTokens  Int      @default(0) @map("input_tokens")
+  outputTokens Int      @default(0) @map("output_tokens")
+  costUsd      Decimal  @default(0) @map("cost_usd") @db.Decimal(12, 6)
+  latencyMs    Int      @default(0) @map("latency_ms")
+  ok           Boolean  @default(true)
+  error        String?
+  createdAt    DateTime @default(now()) @map("created_at")
 
   @@index([provider])
   @@index([createdAt])
@@ -290,27 +290,27 @@ enum MemoryKind {
   STRATEGY
   FAILURE
   OWNER_PREFERENCE
+
   @@schema("tareq")
 }
 
-
 model MemoryRecord {
-  id          String     @id @default(uuid()) @db.Uuid
-  kind        MemoryKind
-  scope       String     @default("global")
-  key         String
-  content     String
+  id             String     @id @default(uuid()) @db.Uuid
+  kind           MemoryKind
+  scope          String     @default("global")
+  key            String
+  content        String
   /// Where this came from: owner | web | model | system | customer
-  source      String     @default("system")
-  sourceUrl   String?    @map("source_url")
+  source         String     @default("system")
+  sourceUrl      String?    @map("source_url")
   /// fact | estimate | hypothesis
-  epistemic   String     @default("fact")
-  confidence  Decimal    @default(0.5) @db.Decimal(4, 3)
-  expiresAt   DateTime?  @map("expires_at")
-  lastVerifiedAt DateTime? @map("last_verified_at")
-  ownerId     String?    @map("owner_id") @db.Uuid
-  createdAt   DateTime   @default(now()) @map("created_at")
-  updatedAt   DateTime   @updatedAt @map("updated_at")
+  epistemic      String     @default("fact")
+  confidence     Decimal    @default(0.5) @db.Decimal(4, 3)
+  expiresAt      DateTime?  @map("expires_at")
+  lastVerifiedAt DateTime?  @map("last_verified_at")
+  ownerId        String?    @map("owner_id") @db.Uuid
+  createdAt      DateTime   @default(now()) @map("created_at")
+  updatedAt      DateTime   @updatedAt @map("updated_at")
 
   @@unique([kind, scope, key])
   @@index([kind])
@@ -320,18 +320,18 @@ model MemoryRecord {
 
 /// A commercial claim with provenance. Blocks unsupported promises in offers.
 model Claim {
-  id           String   @id @default(uuid()) @db.Uuid
-  statement    String
-  source       String
-  sourceUrl    String?  @map("source_url")
-  verifiedAt   DateTime? @map("verified_at")
-  validUntil   DateTime? @map("valid_until")
-  confidence   Decimal  @default(0.5) @db.Decimal(4, 3)
-  supporting   Json     @default("[]")
-  contradicting Json    @default("[]")
+  id            String    @id @default(uuid()) @db.Uuid
+  statement     String
+  source        String
+  sourceUrl     String?   @map("source_url")
+  verifiedAt    DateTime? @map("verified_at")
+  validUntil    DateTime? @map("valid_until")
+  confidence    Decimal   @default(0.5) @db.Decimal(4, 3)
+  supporting    Json      @default("[]")
+  contradicting Json      @default("[]")
   /// Whether this claim is allowed to appear in customer-facing material.
-  publishable  Boolean  @default(false)
-  createdAt    DateTime @default(now()) @map("created_at")
+  publishable   Boolean   @default(false)
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   @@map("claims")
   @@schema("tareq")
@@ -360,28 +360,28 @@ enum OpportunityStage {
   RETENTION
   LEARNING
   KILLED
+
   @@schema("tareq")
 }
 
-
 model Opportunity {
-  id            String           @id @default(uuid()) @db.Uuid
-  title         String
-  problem       String
-  stage         OpportunityStage @default(DISCOVERY)
+  id           String           @id @default(uuid()) @db.Uuid
+  title        String
+  problem      String
+  stage        OpportunityStage @default(DISCOVERY)
   /// Structured genome (group 64): pain severity, WTP, cycle, competition...
-  genome        Json             @default("{}")
+  genome       Json             @default("{}")
   /// Estimated, not verified, economics. Verified numbers live in the ledger.
-  estValueUsd   Decimal?         @map("est_value_usd") @db.Decimal(12, 2)
-  estCostUsd    Decimal?         @map("est_cost_usd") @db.Decimal(12, 2)
-  confidence    Decimal          @default(0.3) @db.Decimal(4, 3)
-  riskScore     Int              @default(50) @map("risk_score")
+  estValueUsd  Decimal?         @map("est_value_usd") @db.Decimal(12, 2)
+  estCostUsd   Decimal?         @map("est_cost_usd") @db.Decimal(12, 2)
+  confidence   Decimal          @default(0.3) @db.Decimal(4, 3)
+  riskScore    Int              @default(50) @map("risk_score")
   /// Pre-declared kill conditions (group 84).
-  killCriteria  Json             @default("{}") @map("kill_criteria")
-  killedAt      DateTime?        @map("killed_at")
-  killReason    String?          @map("kill_reason")
-  createdAt     DateTime         @default(now()) @map("created_at")
-  updatedAt     DateTime         @updatedAt @map("updated_at")
+  killCriteria Json             @default("{}") @map("kill_criteria")
+  killedAt     DateTime?        @map("killed_at")
+  killReason   String?          @map("kill_reason")
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
 
   stageEvents StageEvent[]
   deals       Deal[]
@@ -413,19 +413,19 @@ model StageEvent {
 }
 
 model Buyer {
-  id           String   @id @default(uuid()) @db.Uuid
+  id           String    @id @default(uuid()) @db.Uuid
   name         String
   organization String?
   role         String?
   segment      String?
   email        String?
   /// Public source where this buyer/contact was legitimately found.
-  sourceUrl    String?  @map("source_url")
+  sourceUrl    String?   @map("source_url")
   /// lawful_basis for processing: public | consented | contract | legitimate_interest
-  lawfulBasis  String?  @map("lawful_basis")
+  lawfulBasis  String?   @map("lawful_basis")
   verifiedAt   DateTime? @map("verified_at")
   notes        String?
-  createdAt    DateTime @default(now()) @map("created_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
 
   leads Lead[]
 
@@ -440,22 +440,22 @@ enum LeadStatus {
   REPLIED
   DISQUALIFIED
   CONVERTED
+
   @@schema("tareq")
 }
 
-
 model Lead {
-  id         String     @id @default(uuid()) @db.Uuid
-  buyerId    String?    @map("buyer_id") @db.Uuid
-  opportunityId String? @map("opportunity_id") @db.Uuid
-  status     LeadStatus @default(NEW)
+  id            String     @id @default(uuid()) @db.Uuid
+  buyerId       String?    @map("buyer_id") @db.Uuid
+  opportunityId String?    @map("opportunity_id") @db.Uuid
+  status        LeadStatus @default(NEW)
   /// 0-100 fit score with the reasoning stored alongside.
-  score      Int        @default(0)
-  scoreReason Json      @default("{}") @map("score_reason")
-  optedOut   Boolean    @default(false) @map("opted_out")
-  createdAt  DateTime   @default(now()) @map("created_at")
+  score         Int        @default(0)
+  scoreReason   Json       @default("{}") @map("score_reason")
+  optedOut      Boolean    @default(false) @map("opted_out")
+  createdAt     DateTime   @default(now()) @map("created_at")
 
-  buyer Buyer? @relation(fields: [buyerId], references: [id], onDelete: SetNull)
+  buyer  Buyer?          @relation(fields: [buyerId], references: [id], onDelete: SetNull)
   drafts OutreachDraft[]
 
   @@index([status])
@@ -470,21 +470,21 @@ enum OutreachStatus {
   SENT
   REJECTED
   CANCELLED
+
   @@schema("tareq")
 }
 
-
 /// Agent-authored outreach. Never sent without an approved policy + approval.
 model OutreachDraft {
-  id          String         @id @default(uuid()) @db.Uuid
-  leadId      String         @map("lead_id") @db.Uuid
-  channel     String         @default("email")
-  subject     String?
-  body        String
-  status      OutreachStatus @default(DRAFT)
-  approvedBy  String?        @map("approved_by")
-  sentAt      DateTime?      @map("sent_at")
-  createdAt   DateTime       @default(now()) @map("created_at")
+  id         String         @id @default(uuid()) @db.Uuid
+  leadId     String         @map("lead_id") @db.Uuid
+  channel    String         @default("email")
+  subject    String?
+  body       String
+  status     OutreachStatus @default(DRAFT)
+  approvedBy String?        @map("approved_by")
+  sentAt     DateTime?      @map("sent_at")
+  createdAt  DateTime       @default(now()) @map("created_at")
 
   lead Lead @relation(fields: [leadId], references: [id], onDelete: Cascade)
 
@@ -518,9 +518,9 @@ enum DealStatus {
   LOST
   DELIVERED
   CANCELLED
+
   @@schema("tareq")
 }
-
 
 model Deal {
   id            String     @id @default(uuid()) @db.Uuid
@@ -533,7 +533,7 @@ model Deal {
   closedAt      DateTime?  @map("closed_at")
   createdAt     DateTime   @default(now()) @map("created_at")
 
-  opportunity Opportunity    @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  opportunity Opportunity   @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   ledger      LedgerEntry[]
 
   @@map("deals")
@@ -563,15 +563,15 @@ model Experiment {
 
 /// Reusable commercial assets (templates, tools, workflows) and their yield.
 model Asset {
-  id          String   @id @default(uuid()) @db.Uuid
-  kind        String
-  name        String
-  ref         String?
-  reuseCount  Int      @default(0) @map("reuse_count")
-  yieldUsd    Decimal  @default(0) @map("yield_usd") @db.Decimal(12, 2)
-  costUsd     Decimal  @default(0) @map("cost_usd") @db.Decimal(12, 2)
-  notes       String?
-  createdAt   DateTime @default(now()) @map("created_at")
+  id         String   @id @default(uuid()) @db.Uuid
+  kind       String
+  name       String
+  ref        String?
+  reuseCount Int      @default(0) @map("reuse_count")
+  yieldUsd   Decimal  @default(0) @map("yield_usd") @db.Decimal(12, 2)
+  costUsd    Decimal  @default(0) @map("cost_usd") @db.Decimal(12, 2)
+  notes      String?
+  createdAt  DateTime @default(now()) @map("created_at")
 
   @@map("assets")
   @@schema("tareq")
@@ -596,22 +596,22 @@ enum LedgerKind {
   TOOL_COST
   MARKETING_COST
   DELIVERY_COST
+
   @@schema("tareq")
 }
 
-
 model LedgerEntry {
-  id          String     @id @default(uuid()) @db.Uuid
-  kind        LedgerKind
-  amountUsd   Decimal    @map("amount_usd") @db.Decimal(12, 4)
-  dealId      String?    @map("deal_id") @db.Uuid
-  provider    String?
-  externalId  String?    @unique @map("external_id")
+  id         String     @id @default(uuid()) @db.Uuid
+  kind       LedgerKind
+  amountUsd  Decimal    @map("amount_usd") @db.Decimal(12, 4)
+  dealId     String?    @map("deal_id") @db.Uuid
+  provider   String?
+  externalId String?    @unique @map("external_id")
   /// Webhook-verified reference. Required before REVENUE_CONFIRMED is recorded.
-  verifiedAt  DateTime?  @map("verified_at")
-  evidence    Json       @default("{}")
-  occurredAt  DateTime   @default(now()) @map("occurred_at")
-  createdAt   DateTime   @default(now()) @map("created_at")
+  verifiedAt DateTime?  @map("verified_at")
+  evidence   Json       @default("{}")
+  occurredAt DateTime   @default(now()) @map("occurred_at")
+  createdAt  DateTime   @default(now()) @map("created_at")
 
   deal Deal? @relation(fields: [dealId], references: [id], onDelete: SetNull)
 
@@ -622,13 +622,13 @@ model LedgerEntry {
 
 /// Hard budget ceiling and current consumption. Cap is not a target.
 model Budget {
-  id          String   @id @default(uuid()) @db.Uuid
-  scope       String   @unique
-  capUsd      Decimal  @map("cap_usd") @db.Decimal(12, 4)
-  spentUsd    Decimal  @default(0) @map("spent_usd") @db.Decimal(12, 4)
-  warnUsd     Decimal? @map("warn_usd") @db.Decimal(12, 4)
-  currency    String   @default("USD")
-  updatedAt   DateTime @updatedAt @map("updated_at")
+  id        String   @id @default(uuid()) @db.Uuid
+  scope     String   @unique
+  capUsd    Decimal  @map("cap_usd") @db.Decimal(12, 4)
+  spentUsd  Decimal  @default(0) @map("spent_usd") @db.Decimal(12, 4)
+  warnUsd   Decimal? @map("warn_usd") @db.Decimal(12, 4)
+  currency  String   @default("USD")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("budgets")
   @@schema("tareq")
@@ -639,16 +639,16 @@ model Budget {
 // ===========================================================================
 
 model SubAgent {
-  id          String   @id @default(uuid()) @db.Uuid
-  name        String   @unique
-  role        String
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String   @unique
+  role           String
   /// Explicit allow-lists. A sub-agent can never widen its own permissions.
-  allowedTools String[] @default([]) @map("allowed_tools")
+  allowedTools   String[] @default([]) @map("allowed_tools")
   allowedSecrets String[] @default([]) @map("allowed_secrets")
-  maxCostUsd  Decimal  @default(0.5) @map("max_cost_usd") @db.Decimal(12, 4)
-  maxAttempts Int      @default(2) @map("max_attempts")
-  enabled     Boolean  @default(true)
-  createdAt   DateTime @default(now()) @map("created_at")
+  maxCostUsd     Decimal  @default(0.5) @map("max_cost_usd") @db.Decimal(12, 4)
+  maxAttempts    Int      @default(2) @map("max_attempts")
+  enabled        Boolean  @default(true)
+  createdAt      DateTime @default(now()) @map("created_at")
 
   runs SubAgentRun[]
 
@@ -682,6 +682,7 @@ enum ProductStatus {
   PUBLISHED
   PAUSED
   ARCHIVED
+
   @@schema("tareq")
 }
 
@@ -730,10 +731,19 @@ enum OrderStatus {
   AWAITING_PAYMENT
   PAID
   IN_DELIVERY
+  /// The deliverable is generated and stored, but the confirmation email has
+  /// not yet been sent successfully. A safe retry sends the email without
+  /// regenerating the artifact (so nothing is delivered twice).
+  DELIVERY_PENDING
+  /// The deliverable is generated and stored, but the confirmation email
+  /// failed at the provider. The artifact is kept and the buyer can still
+  /// retrieve it through the secure download link; delivery is retried.
+  EMAIL_FAILED
   DELIVERED
   FAILED
   REFUNDED
   CANCELLED
+
   @@schema("tareq")
 }
 
@@ -750,6 +760,8 @@ model Order {
   /// Customer-supplied requirements for delivery.
   requirements          Json        @default("{}")
   stripeSessionId       String?     @unique @map("stripe_session_id")
+  /// Stripe Checkout URL the buyer is sent to. Safe to store and re-show.
+  checkoutUrl           String?     @map("checkout_url")
   stripePaymentIntentId String?     @map("stripe_payment_intent_id")
   paidAt                DateTime?   @map("paid_at")
   deliveredAt           DateTime?   @map("delivered_at")
@@ -767,16 +779,27 @@ model Order {
 /// A deliverable produced for an order. A service is never reported delivered
 /// unless a validated artifact exists.
 model DeliveryArtifact {
-  id         String   @id @default(uuid()) @db.Uuid
-  orderId    String   @map("order_id") @db.Uuid
-  kind       String
-  name       String
+  id                String    @id @default(uuid()) @db.Uuid
+  orderId           String    @map("order_id") @db.Uuid
+  kind              String
+  name              String
   /// Stored artifact content (report JSON/markdown) — the actual deliverable.
-  ref        String?
-  bytes      Int      @default(0)
-  validated  Boolean  @default(false)
-  validation Json     @default("{}")
-  createdAt  DateTime @default(now()) @map("created_at")
+  ref               String?
+  bytes             Int       @default(0)
+  validated         Boolean   @default(false)
+  validation        Json      @default("{}")
+  /// SHA-256 hash of the per-order download token. The raw token is emailed to
+  /// the buyer and NEVER stored, so a database read cannot leak a live link.
+  downloadTokenHash String?   @unique @map("download_token_hash")
+  /// When the download link stops working. Null means it does not expire.
+  downloadExpiresAt DateTime? @map("download_expires_at")
+  /// Email-delivery bookkeeping (the deliverable itself is never discarded when
+  /// email fails — the buyer can still use the download link).
+  emailStatus       String    @default("PENDING") @map("email_status")
+  emailAttempts     Int       @default(0) @map("email_attempts")
+  emailLastError    String?   @map("email_last_error")
+  emailSentAt       DateTime? @map("email_sent_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 

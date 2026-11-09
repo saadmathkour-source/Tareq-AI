@@ -141,7 +141,7 @@ test('delivery refuses an order that is not paid', async () => {
   await assert.rejects(() => deliverOrder(order.id, { scan: async (t) => fakeDemand(t) }), /only a PAID order/);
 });
 
-test('delivery of a paid order produces a validated artifact and marks DELIVERED', async () => {
+test('delivery of a paid order produces a validated artifact, emails the buyer and marks DELIVERED', async () => {
   const order = await createOrder({
     productSlug: 'market-opportunity-report',
     customerEmail: `${MARK}@example.com`,
@@ -150,11 +150,20 @@ test('delivery of a paid order produces a validated artifact and marks DELIVERED
   orderIds.push(order.id);
   await markPaid({ orderId: order.id, idempotencyKey: `${MARK}:deliver:${order.id}` });
 
+  // Phase 17: delivery now includes emailing the buyer. Inject the sender so the
+  // test needs no network and asserts the message was actually produced.
+  let sent = false;
   const res = await deliverOrder(order.id, {
     scan: async (t) => fakeDemand(t),
     summarize: async (t) => `Public signals for ${t} show interest only, not proven willingness to pay.`,
+    sendEmail: async (input) => {
+      sent = true;
+      assert.match(input.text, /\/download\//);
+      return { sent: true };
+    },
   });
   assert.equal(res.ok, true);
+  assert.equal(sent, true);
 
   const artifact = await prisma.deliveryArtifact.findUnique({ where: { id: res.artifactId } });
   assert.ok(artifact);
@@ -167,7 +176,7 @@ test('delivery of a paid order produces a validated artifact and marks DELIVERED
   assert.equal(row?.status, 'DELIVERED');
   assert.ok(row?.deliveredAt);
 
-  // Idempotent re-delivery does not create a second artifact.
+  // Idempotent re-delivery does not create a second artifact and does not resend.
   const before = await prisma.deliveryArtifact.count({ where: { orderId: order.id } });
   await deliverOrder(order.id, { scan: async (t) => fakeDemand(t) });
   const after = await prisma.deliveryArtifact.count({ where: { orderId: order.id } });

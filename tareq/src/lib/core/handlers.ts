@@ -395,7 +395,11 @@ function registerAll(): void {
     const orderId = String(task.payload['orderId'] ?? '').trim();
     if (!orderId) return { skipped: 'no orderId' };
     const res = await deliverOrder(orderId);
-    return { orderId: res.orderId, artifactId: res.artifactId, delivered: res.ok };
+    // A generated-but-unsent email is a retryable failure: the artifact is safe,
+    // and the queue's backoff re-runs this handler to resend. When the buyer was
+    // emailed we are done.
+    if (!res.emailSent) throw new Error(`delivery email not sent for order ${orderId}`);
+    return { orderId: res.orderId, artifactId: res.artifactId, delivered: true };
   });
 
   // --- daily financial intelligence -----------------------------------------

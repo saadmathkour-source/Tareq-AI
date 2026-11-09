@@ -79,6 +79,48 @@ export async function createTestPaymentLink(input: {
   return { ok: true, url: data.url, id: data.id, mode: st.mode === 'none' ? undefined : st.mode };
 }
 
+/**
+ * Create a Stripe Checkout Session for a specific order. Unlike the generic
+ * link helper this takes the product's own currency and can prefill the buyer's
+ * email. The session is tied to the order via `client_reference_id` so the
+ * webhook can activate exactly that order. No money is recorded here.
+ */
+export async function createCheckoutSession(input: {
+  amountUsd: number;
+  currency: string;
+  productName: string;
+  successUrl: string;
+  cancelUrl: string;
+  clientReferenceId: string;
+  customerEmail?: string;
+}): Promise<PaymentLinkResult> {
+  const st = status();
+  if (!st.configured) return { ok: false, reason: 'Stripe not configured (missing: STRIPE_SECRET_KEY)' };
+  const body = new URLSearchParams({
+    mode: 'payment',
+    'line_items[0][quantity]': '1',
+    'line_items[0][price_data][currency]': input.currency.toLowerCase(),
+    'line_items[0][price_data][unit_amount]': String(Math.round(input.amountUsd * 100)),
+    'line_items[0][price_data][product_data][name]': input.productName,
+    success_url: input.successUrl,
+    cancel_url: input.cancelUrl,
+    client_reference_id: input.clientReferenceId,
+  });
+  if (input.customerEmail) body.set('customer_email', input.customerEmail);
+
+  const res = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${process.env.STRIPE_SECRET_KEY}`,
+      'content-type': 'application/x-www-form-urlencoded',
+    },
+    body,
+  });
+  const data = (await res.json()) as { id?: string; url?: string; error?: { message?: string } };
+  if (!res.ok || !data.url) return { ok: false, reason: data.error?.message ?? `HTTP ${res.status}` };
+  return { ok: true, url: data.url, id: data.id, mode: st.mode === 'none' ? undefined : st.mode };
+}
+
 export interface WebhookResult {
   handled: boolean;
   recorded: boolean;

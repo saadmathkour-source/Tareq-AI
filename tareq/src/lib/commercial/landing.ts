@@ -43,9 +43,11 @@ export interface LandingInput {
 export function renderLandingHtml(p: LandingInput): string {
   const price = Number(p.priceUsd);
   const priceLabel = `$${price.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+  // The purchase form lives at /checkout/:slug. Pointing the CTA there (rather
+  // than back at this landing page) is what makes the button actually buy.
   const cta = p.checkoutUrl
     ? `<a class="btn" href="${esc(p.checkoutUrl)}">Buy now — ${esc(priceLabel)}</a>`
-    : `<a class="btn" href="/buy/${esc(p.slug)}">Buy now — ${esc(priceLabel)}</a>`;
+    : `<a class="btn" href="/checkout/${esc(p.slug)}">Buy now — ${esc(priceLabel)}</a>`;
   return `<!doctype html>
 <html lang="en">
 <head>

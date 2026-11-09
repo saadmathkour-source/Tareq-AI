@@ -47,6 +47,21 @@ async function accessToken(): Promise<string> {
   return data.access_token;
 }
 
+/**
+ * Verify the OAuth credentials by exchanging the refresh token for an access
+ * token. This proves the credentials work without sending or drafting anything.
+ */
+export async function probeToken(): Promise<{ ok: boolean; reason?: string }> {
+  const st = status();
+  if (!st.configured) return { ok: false, reason: `Gmail not configured (missing: ${st.missing.join(', ')})` };
+  try {
+    await accessToken();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: (err as Error).message };
+  }
+}
+
 export interface SendResult {
   sent: boolean;
   to: string;

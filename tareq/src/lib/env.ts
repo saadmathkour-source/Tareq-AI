@@ -32,6 +32,19 @@ const serverSchema = z.object({
   GMAIL_REFRESH_TOKEN: z.string().optional(),
   GMAIL_SENDER: z.string().email().optional(),
 
+  // Transactional email. `resend` is preferred for customer delivery; the
+  // `EMAIL_*` names are canonical and `GMAIL_SENDER` is accepted as a fallback
+  // sender so a deployment with only the Gmail names still works.
+  EMAIL_PROVIDER: z.enum(['resend', 'gmail']).optional(),
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().email().optional(),
+
+  // Public checkout link configuration.
+  TAREQ_PUBLIC_URL: z.string().url().optional(),
+  TAREQ_DOWNLOAD_TTL_HOURS: z.coerce.number().positive().optional(),
+  TAREQ_CHECKOUT_RATE_LIMIT: z.coerce.number().positive().optional(),
+  TAREQ_CHECKOUT_RATE_WINDOW_MS: z.coerce.number().positive().optional(),
+
   // HubSpot private-app token.
   HUBSPOT_PRIVATE_APP_TOKEN: z.string().optional(),
 

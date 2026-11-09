@@ -44,7 +44,7 @@ export async function createOrder(input: OrderInput) {
 export async function attachCheckout(orderId: string, sessionId: string, url: string) {
   const order = await prisma.order.update({
     where: { id: orderId },
-    data: { status: 'AWAITING_PAYMENT', stripeSessionId: sessionId },
+    data: { status: 'AWAITING_PAYMENT', stripeSessionId: sessionId, checkoutUrl: url || null },
   });
   await audit({ actorType: 'agent', action: 'order.checkout_created', target: orderId, metadata: { sessionId } });
   return { order, url };
@@ -66,7 +66,9 @@ export async function markPaid(input: {
   const order = await prisma.order.findUnique({ where: { id: input.orderId } });
   if (!order) throw new ValidationError(`Order not found: ${input.orderId}`);
 
-  if (order.status === 'PAID' || order.status === 'IN_DELIVERY' || order.status === 'DELIVERED') {
+  // Any post-payment state (including the delivery/email retry states) is
+  // already activated: a replayed webhook must never re-enqueue delivery.
+  if (['PAID', 'IN_DELIVERY', 'DELIVERY_PENDING', 'EMAIL_FAILED', 'DELIVERED'].includes(order.status)) {
     return { orderId: order.id, alreadyPaid: true, deliveryTaskId: null };
   }
 
