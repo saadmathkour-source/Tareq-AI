@@ -670,3 +670,114 @@ model SubAgentRun {
   @@map("sub_agent_runs")
   @@schema("tareq")
 }
+
+// ===========================================================================
+// COMMERCIAL OPERATION — real products, orders and delivered artifacts
+// ===========================================================================
+
+enum ProductStatus {
+  DRAFT
+  PUBLISHED
+  PAUSED
+  ARCHIVED
+  @@schema("tareq")
+}
+
+/// A real, sellable product/service built from a validated opportunity.
+model Product {
+  id            String        @id @default(uuid()) @db.Uuid
+  slug          String        @unique
+  name          String
+  tagline       String
+  problem       String
+  solution      String
+  /// Deliverable descriptions the buyer receives.
+  deliverables  Json          @default("[]")
+  /// Documented delivery process (ordered steps).
+  deliverySteps Json          @default("[]") @map("delivery_steps")
+  /// Customer inputs required before delivery can start.
+  requirements  Json          @default("[]")
+  /// Honest limits of the service.
+  limitations   Json          @default("[]")
+  /// Quality-assurance checks run before a deliverable is accepted.
+  qaChecklist   Json          @default("[]") @map("qa_checklist")
+  priceUsd      Decimal       @map("price_usd") @db.Decimal(12, 2)
+  /// Estimated operating cost to fulfil one order (AI + infra).
+  costUsd       Decimal       @default(0) @map("cost_usd") @db.Decimal(12, 2)
+  marginPct     Int           @default(0) @map("margin_pct")
+  currency      String        @default("USD")
+  status        ProductStatus @default(DRAFT)
+  opportunityId String?       @map("opportunity_id") @db.Uuid
+  offerId       String?       @map("offer_id") @db.Uuid
+  /// Rendered public landing page (accurate claims only).
+  landingHtml   String?       @map("landing_html")
+  claimRefs     Json          @default("[]") @map("claim_refs")
+  stripePriceId String?       @map("stripe_price_id")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  orders Order[]
+
+  @@index([status])
+  @@map("products")
+  @@schema("tareq")
+}
+
+enum OrderStatus {
+  CREATED
+  AWAITING_PAYMENT
+  PAID
+  IN_DELIVERY
+  DELIVERED
+  FAILED
+  REFUNDED
+  CANCELLED
+  @@schema("tareq")
+}
+
+/// A customer purchase. An order is only PAID after a signature-verified
+/// Stripe webhook confirms collection — never from a link being created.
+model Order {
+  id                    String      @id @default(uuid()) @db.Uuid
+  productId             String      @map("product_id") @db.Uuid
+  status                OrderStatus @default(CREATED)
+  customerEmail         String?     @map("customer_email")
+  customerName          String?     @map("customer_name")
+  amountUsd             Decimal     @map("amount_usd") @db.Decimal(12, 2)
+  currency              String      @default("USD")
+  /// Customer-supplied requirements for delivery.
+  requirements          Json        @default("{}")
+  stripeSessionId       String?     @unique @map("stripe_session_id")
+  stripePaymentIntentId String?     @map("stripe_payment_intent_id")
+  paidAt                DateTime?   @map("paid_at")
+  deliveredAt           DateTime?   @map("delivered_at")
+  createdAt             DateTime    @default(now()) @map("created_at")
+  updatedAt             DateTime    @updatedAt @map("updated_at")
+
+  product   Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  artifacts DeliveryArtifact[]
+
+  @@index([status])
+  @@map("orders")
+  @@schema("tareq")
+}
+
+/// A deliverable produced for an order. A service is never reported delivered
+/// unless a validated artifact exists.
+model DeliveryArtifact {
+  id         String   @id @default(uuid()) @db.Uuid
+  orderId    String   @map("order_id") @db.Uuid
+  kind       String
+  name       String
+  /// Stored artifact content (report JSON/markdown) — the actual deliverable.
+  ref        String?
+  bytes      Int      @default(0)
+  validated  Boolean  @default(false)
+  validation Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@map("delivery_artifacts")
+  @@schema("tareq")
+}

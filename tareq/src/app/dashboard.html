@@ -127,6 +127,22 @@
   </section>
 
   <section>
+    <h2 data-i18n="s.commercial">Commercial operation — products · orders · deliveries</h2>
+    <div class="grid" id="commCards"></div>
+    <div class="card" style="margin-top:14px">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px">
+        <h3 style="margin:0" data-i18n="lbl.products">Products</h3>
+        <button id="seedProductsBtn" class="ghost" data-i18n="seedProducts">Seed catalog</button>
+      </div>
+      <div id="products"></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h3 data-i18n="lbl.orders">Orders</h3>
+      <div id="orders"></div>
+    </div>
+  </section>
+
+  <section>
     <h2 data-i18n="s.capabilities">Capabilities (100)</h2>
     <div class="card">
       <div class="row" id="capSummary" style="margin-bottom:10px"></div>
@@ -194,6 +210,10 @@ T.en = {
   's.tasks':'Task center','s.finance':'Revenue · expenses · profit','s.capabilities':'Capabilities (100)',
   's.integrations':'Integrations','s.leads':'Leads & customers','s.research':'Research & opportunity reports','s.usage':'API usage & cost','s.errors':'Errors','s.config':'Agent configuration',
   's.health':'System health · audit','lbl.mode':'Operating mode','apply':'Apply','plan':'Plan','mission':'Run mission',
+  's.commercial':'Commercial operation — products · orders · deliveries','lbl.products':'Products','lbl.orders':'Orders',
+  'lbl.published':'Published products','lbl.delivered':'Delivered','lbl.qualified':'Qualified leads','lbl.awaiting':'Awaiting approval',
+  'seedProducts':'Seed catalog','view':'View','buyLink':'Create checkout','margin':'Margin','price':'Price','orders':'Orders',
+  'deliverables':'Deliverables','orderStatus':'Status','customer':'Customer','amount':'Amount','artifact':'Artifact',
   'modeHint':'OBSERVE forbids all acting tools. Sensitive actions (spend, outreach, publish) always need approval, in every mode.',
   'lbl.budget':'Budget','lbl.mode2':'Mode','lbl.tasks':'Tasks','lbl.approvals':'Pending approvals',
   'lbl.caps':'Capabilities implemented','lbl.chain':'Audit chain','lbl.revenue':'Collected revenue',
@@ -213,6 +233,10 @@ T.ar = {
   's.tasks':'مركز المهام','s.finance':'الإيرادات · المصروفات · الربح','s.capabilities':'القدرات (100)',
   's.integrations':'التكاملات','s.leads':'العملاء المحتملون والعملاء','s.research':'تقارير البحث والفرص','s.usage':'استخدام واجهات الذكاء الاصطناعي والتكلفة','s.errors':'الأخطاء','s.config':'إعداد الوكيل',
   's.health':'صحة النظام · التدقيق','lbl.mode':'وضع التشغيل','apply':'تطبيق','plan':'تخطيط','mission':'تشغيل مهمة',
+  's.commercial':'العمل التجاري — المنتجات · الطلبات · التسليم','lbl.products':'المنتجات','lbl.orders':'الطلبات',
+  'lbl.published':'منتجات منشورة','lbl.delivered':'تم التسليم','lbl.qualified':'عملاء مؤهّلون','lbl.awaiting':'بانتظار الموافقة',
+  'seedProducts':'تهيئة الكتالوج','view':'عرض','buyLink':'إنشاء الدفع','margin':'الهامش','price':'السعر','orders':'الطلبات',
+  'deliverables':'المخرجات','orderStatus':'الحالة','customer':'العميل','amount':'المبلغ','artifact':'الأثر',
   'modeHint':'وضع OBSERVE يمنع كل أدوات التنفيذ. الإجراءات الحساسة (الدفع، التواصل، النشر) تتطلب موافقة دائمًا وفي كل الأوضاع.',
   'lbl.budget':'الميزانية','lbl.mode2':'الوضع','lbl.tasks':'المهام','lbl.approvals':'موافقات معلّقة',
   'lbl.caps':'قدرات مُنفّذة','lbl.chain':'سلسلة التدقيق','lbl.revenue':'الإيراد المُحصّل',
@@ -281,10 +305,11 @@ function card(label, value, sub) {
 }
 
 async function refresh() {
-  const [h, mode, caps, tasks, approvals, fin, audit, leads, usage, errors, config, research, integ] = await Promise.all([
+  const [h, mode, caps, tasks, approvals, fin, audit, leads, usage, errors, config, research, integ, comm, prods, ords] = await Promise.all([
     api('/health?deep=1'), api('/mode'), api('/capabilities'),
     api('/tasks'), api('/approvals'), api('/finance'), api('/audit'),
     api('/leads'), api('/usage'), api('/errors'), api('/config'), api('/research'), api('/integrations'),
+    api('/commercial/overview'), api('/products'), api('/orders'),
   ]);
 
   // health dot
@@ -346,6 +371,41 @@ async function refresh() {
   bar.firstElementChild.style.width = pct.toFixed(1) + '%';
   document.getElementById('budgetText').textContent =
     money(b.spentUsd) + ' / ' + money(b.capUsd) + '  ·  ' + t('lbl.budgetLeft') + ': ' + money(b.remainingUsd);
+
+  // commercial operation
+  const c = comm || {};
+  const cp = (c.products || []).filter((p) => p.published).length;
+  document.getElementById('commCards').innerHTML = [
+    card(t('lbl.published'), cp),
+    card(t('lbl.orders'), c.ordersTotal || 0, JSON.stringify(c.orders || {})),
+    card(t('lbl.delivered'), (c.deliveries && c.deliveries.delivered) || 0, 'artifacts: ' + ((c.deliveries && c.deliveries.validated) || 0) + ' validated'),
+    card(t('lbl.qualified'), (c.leads && c.leads.qualified) || 0),
+    card(t('lbl.awaiting'), c.approvalsPending || 0),
+    card(t('lbl.revenue'), money(c.revenue && c.revenue.grossUsd), t('test') + ': ' + money(c.revenue && c.revenue.testUsd)),
+  ].join('');
+
+  const pl = (prods.products || []);
+  document.getElementById('products').innerHTML = pl.length === 0 ? '<p class="muted">' + t('empty') + '</p>' :
+    '<table><thead><tr><th>' + t('lbl.products') + '</th><th>' + t('price') + '</th><th>' + t('margin') + '</th><th>' + t('orderStatus') + '</th><th>' + t('orders') + '</th><th></th></tr></thead><tbody>' +
+    pl.map((p) => '<tr><td>' + esc(p.name) + '<div class="muted" style="font-size:11px">' + esc(p.slug) + '</div></td><td>' + money(p.priceUsd) +
+      '</td><td>' + (p.marginPct != null ? p.marginPct + '%' : '—') +
+      '</td><td>' + pill(p.status, p.status === 'PUBLISHED' ? 'ok' : p.status === 'PAUSED' ? 'warn' : 'info') +
+      '</td><td>' + (p._count ? p._count.orders : '—') +
+      '</td><td>' + (p.status === 'PUBLISHED' ? '<a class="pill ok" href="/buy/' + esc(p.slug) + '" target="_blank" rel="noopener">' + t('view') + '</a>' : '') +
+      '</td></tr>').join('') + '</tbody></table>';
+
+  const oo = (ords.orders || []);
+  document.getElementById('orders').innerHTML = oo.length === 0 ? '<p class="muted">' + t('empty') + '</p>' :
+    '<table><thead><tr><th>' + t('customer') + '</th><th>' + t('lbl.products') + '</th><th>' + t('amount') + '</th><th>' + t('orderStatus') + '</th><th>' + t('artifact') + '</th><th></th></tr></thead><tbody>' +
+    oo.slice(0, 30).map((o) => {
+      const art = (o.artifacts || []).find((a) => a.validated);
+      const statusCls = o.status === 'DELIVERED' ? 'ok' : o.status === 'PAID' || o.status === 'IN_DELIVERY' ? 'info' : o.status === 'FAILED' ? 'bad' : 'warn';
+      return '<tr><td>' + esc(o.customerEmail || o.customerName || '—') + '</td><td>' + esc(o.product && o.product.name) + '</td><td>' + money(o.amountUsd) +
+        '</td><td>' + pill(o.status, statusCls) +
+        '</td><td>' + (art ? pill('validated', 'ok') : '—') +
+        '</td><td>' + (['CREATED','AWAITING_PAYMENT'].includes(o.status) ? '<button class="ghost" data-checkout="' + esc(o.id) + '">' + t('buyLink') + '</button>' : '') +
+        '</td></tr>';
+    }).join('') + '</tbody></table>';
 
   // capabilities
   document.getElementById('capSummary').innerHTML = Object.entries(capSum)
@@ -508,6 +568,25 @@ document.getElementById('missionBtn').onclick = async () => {
 
 document.getElementById('capSearch').oninput = (ev) => { capQuery = ev.target.value; renderCaps(); };
 document.getElementById('capFilter').onchange = (ev) => { capFilter = ev.target.value; renderCaps(); };
+
+document.getElementById('seedProductsBtn').onclick = async () => {
+  const btn = document.getElementById('seedProductsBtn');
+  btn.disabled = true;
+  try { await api('/products/seed', { method: 'POST' }); await refresh(); }
+  catch (e) { alert(e.message); }
+  finally { btn.disabled = false; }
+};
+
+document.getElementById('orders').onclick = async (ev) => {
+  const id = ev.target && ev.target.dataset && ev.target.dataset.checkout;
+  if (!id) return;
+  const base = location.origin;
+  try {
+    const r = await api('/orders/checkout', { method: 'POST', body: JSON.stringify({ orderId: id, baseUrl: base }) });
+    if (r.url) window.open(r.url, '_blank', 'noopener');
+    await refresh();
+  } catch (e) { alert(e.message); }
+};
 
 document.getElementById('stopBtn').onclick = async () => {
   if (!confirm(t('confirmStop'))) return;

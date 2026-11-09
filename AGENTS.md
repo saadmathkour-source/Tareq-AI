@@ -286,3 +286,33 @@ verified live:
 
 Operator actions that need Railway dashboard access (no API token available):
 set `TAREQ_AUTH_BYPASS=0`; optionally `TAREQ_WORKER_CONCURRENCY=2..4`.
+
+## Phase 16 — commercial operation (products → orders → delivery → revenue)
+
+- **Products:** `src/lib/commercial/products.ts` (`seedProducts`, `listProducts`,
+  `getPublishedProduct`). Only products with status `PUBLISHED` are sellable and
+  reachable at `/buy/:slug`; DRAFT ones are invisible. Seeding is idempotent.
+- **Landing pages:** `src/lib/commercial/landing.ts` (`generateLanding`,
+  `generateAllLandings`, `renderLandingHtml`). Persisted to `Product.landingHtml`.
+  Claims are limited to what we can prove — no testimonials/badges.
+- **Orders:** `src/lib/commercial/orders.ts`. `createOrder` (published only),
+  `attachCheckout`, `markPaid` (the only → PAID transition; idempotent; enqueues
+  `order.deliver` once, keyed by order id), `listOrders`, `orderStats`.
+- **Delivery:** `src/lib/commercial/delivery.ts` (`deliverOrder`, `buildReport`,
+  `validateReport`). Report is source-cited from `publicdata` research; a report
+  with no sources fails QA → order `FAILED`, never `DELIVERED`. `deliverOrder`
+  accepts injectable `{scan, summarize}` for deterministic tests.
+- **Money:** the ONLY place an order becomes PAID is the signature-verified Stripe
+  webhook (`handleWebhook` → `markPaid`), matched by `client_reference_id` = order
+  id. Test-mode completions never touch revenue or orders.
+- **Routes (owner):** `/commercial/overview`, `/products` (+`/seed`,`/publish`,
+  `/landing`), `/orders` (+`/checkout`, `/artifact`), `/finance/report?period=`.
+  **Public:** `/shop`, `/buy/:slug`, `/thanks`, `/legal/{terms,privacy,refunds}`,
+  `/robots.txt`.
+- **Stripe caveat:** `createTestPaymentLink` is the only helper; it uses the
+  configured key's mode (LIVE key ⇒ real payable links). Do not record revenue
+  from it — only the webhook records money.
+- **Test hygiene:** commercial tests tag rows `QTEST16-` and inject fake research;
+  the live worker excludes the `QTEST` prefix.
+- **Commands:** `npx prisma db push` (additive; DB already in sync), `npx tsc
+  --noEmit`, `npm run build`, `npm test` (190/190).

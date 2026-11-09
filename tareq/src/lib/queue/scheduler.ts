@@ -21,6 +21,10 @@ export interface ScheduleSeed {
 export const DEFAULT_SCHEDULES: ScheduleSeed[] = [
   { name: 'maintenance.cycle', cron: '0 6 * * *', taskKind: 'maintenance.cycle', payload: {} },
   { name: 'evidence.freshness', cron: '0 7 * * *', taskKind: 'maintenance.evidence_freshness', payload: {} },
+  // Commercial operation: ensure the catalog/landings exist and refresh the
+  // daily financial report. Both are read-mostly and cost nothing to run.
+  { name: 'commercial.catalog', cron: '30 5 * * *', taskKind: 'product.seed_catalog', payload: {} },
+  { name: 'finance.daily', cron: '45 23 * * *', taskKind: 'finance.daily_report', payload: {} },
 ];
 
 export async function seedSchedules(seeds: ScheduleSeed[] = DEFAULT_SCHEDULES): Promise<number> {

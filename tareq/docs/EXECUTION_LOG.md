@@ -100,3 +100,59 @@ curl /health?deep=1 (auth)    -> HTTP 200
   passed.
 - Ledger deltas proved the run: Δrevenue $136.36, Δcost $0.05, ΔnetProfit $136.31.
 - Cleanup verified: 0 residual rows.
+
+---
+
+## Phase 16 — Autonomous commercial operation (products, orders, delivery, revenue)
+
+Built the commercial layer on top of the existing engine (no rebuild): a product
+catalog + factory, honest landing pages, a purchase lifecycle, service delivery,
+financial reporting and dashboard surfaces. Real, verifiable plumbing only.
+
+### What was added
+- `src/lib/commercial/products.ts` — catalog + idempotent factory. One product is
+  published for the first launch (`market-opportunity-report`, $149); two more are
+  seeded as DRAFT (not sellable) to avoid over-promising.
+- `src/lib/commercial/landing.ts` — dependency-free landing generator. States price,
+  deliverables, requirements, delivery steps and **honest limitations**. No
+  testimonials, badges or certifications (we have none).
+- `src/lib/commercial/orders.ts` — purchase lifecycle
+  (`CREATED → AWAITING_PAYMENT → PAID → IN_DELIVERY → DELIVERED`, plus `FAILED`/`REFUNDED`).
+  `markPaid()` is the only transition to PAID and is idempotent; it enqueues
+  delivery exactly once (keyed by order id).
+- `src/lib/commercial/delivery.ts` — delivery engine. Builds a source-cited
+  opportunity report from real public research (Hacker News + Wikipedia via
+  `publicdata`) and the deterministic commercial engines; a model drafts only the
+  narrative. QA gate: a report with no sources is rejected and the order is FAILED,
+  never DELIVERED.
+- `src/lib/finance/report.ts` — daily/monthly report + product P&L from ledger rows.
+- `src/lib/commercial/overview.ts` — Command Center commercial aggregates from real records.
+- `src/app/storefront.ts` — public `/shop`, `/buy/:slug`, `/thanks`, `/legal/{terms,privacy,refunds}`, `/robots.txt`.
+- Owner routes: `GET /commercial/overview`, `GET/POST /products*`, `GET/POST /orders`,
+  `POST /orders/checkout`, `GET /orders/artifact`, `GET /finance/report`.
+- Stripe webhook now activates the matching order from a **signature-verified**
+  live payment (`client_reference_id` = order id); this is the only place an order
+  becomes PAID. Test-mode completions never touch revenue or orders.
+- Dashboard: new "Commercial operation" section (products, orders, deliveries,
+  checkout creation, catalog seeding). EN/AR strings added.
+- Schedules: `product.seed_catalog` (daily) and `finance.daily_report` (daily).
+
+### Commands of record
+```
+npx prisma db push            -> "already in sync"; Prisma Client regenerated
+npx tsc --noEmit              -> clean
+npm run build                 -> success; dashboard asset copied
+npm test                      -> tests 190 / pass 190 / fail 0 (was 179; +11 new)
+curl /shop, /buy/:slug, /legal/terms, /thanks, /robots.txt -> HTTP 200
+curl /commercial/overview, /products (unauth) -> HTTP 401
+curl /commercial/overview, /orders, /finance/report (owner) -> HTTP 200
+```
+
+### Honesty
+- Real collected revenue remains $0 until a live Stripe payment is verified.
+- No revenue, customer or conversion is claimed or guaranteed anywhere.
+- Draft products are not reachable from the storefront and cannot be ordered.
+
+### Blockers (require owner action)
+- A live Stripe webhook endpoint must be registered to the production URL.
+- Outbound acquisition (sending) still requires per-item owner approval.

@@ -16,6 +16,8 @@ import { seedSubAgents } from '../src/lib/core/subagents.ts';
 import { seedSchedules } from '../src/lib/queue/scheduler.ts';
 import { createPrimaryOwner } from '../src/lib/security/owner-auth.ts';
 import { audit } from '../src/lib/core/audit.ts';
+import { seedProducts } from '../src/lib/commercial/products.ts';
+import { generateAllLandings } from '../src/lib/commercial/landing.ts';
 
 async function main(): Promise<void> {
   const e = env();
@@ -23,6 +25,8 @@ async function main(): Promise<void> {
   await ensureBudget();
   const agents = await seedSubAgents();
   const schedules = await seedSchedules();
+  const products = await seedProducts();
+  const landings = await generateAllLandings();
 
   await prisma.setting.upsert({
     where: { key: 'operating_mode' },
@@ -39,8 +43,8 @@ async function main(): Promise<void> {
     }
   }
 
-  await audit({ actorType: 'system', action: 'bootstrap', metadata: { agents, schedules, ownerCreated } });
-  logger.info('bootstrap complete', { agents, schedules, ownerCreated, mode: 'OBSERVE' });
+  await audit({ actorType: 'system', action: 'bootstrap', metadata: { agents, schedules, ownerCreated, products, landings } });
+  logger.info('bootstrap complete', { agents, schedules, ownerCreated, products, landings, mode: 'OBSERVE' });
   await prisma.$disconnect();
 }
 

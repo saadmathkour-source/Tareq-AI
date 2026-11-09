@@ -21,6 +21,10 @@ import { scanValueLeak, forgeMicroOffer, scoreIntent, type IntentSignal } from '
 import { painToCash, opportunityDNA, killSwitch } from '../capabilities/engines.ts';
 import { runMission } from '../commercial/mission.ts';
 import { researchDemand } from '../tools/research.ts';
+import { seedProducts } from '../commercial/products.ts';
+import { generateLanding, generateAllLandings } from '../commercial/landing.ts';
+import { deliverOrder } from '../commercial/delivery.ts';
+import { financialReport } from '../finance/report.ts';
 
 /** Extract a strict JSON object from a model reply, or null. */
 function tryJson<T>(text: string): T | null {
@@ -370,5 +374,46 @@ function registerAll(): void {
       demand: report.demand,
       offer: report.offer,
     };
+  });
+
+  // --- product factory ------------------------------------------------------
+  registerHandler('product.seed_catalog', async () => {
+    const count = await seedProducts();
+    const landings = await generateAllLandings();
+    return { products: count, landings };
+  });
+
+  registerHandler('product.generate_landing', async (task) => {
+    const slug = String(task.payload['slug'] ?? '').trim();
+    if (!slug) return { skipped: 'no slug' };
+    await generateLanding(slug);
+    return { slug, generated: true };
+  });
+
+  // --- service delivery (only ever enqueued from a verified paid order) ------
+  registerHandler('order.deliver', async (task) => {
+    const orderId = String(task.payload['orderId'] ?? '').trim();
+    if (!orderId) return { skipped: 'no orderId' };
+    const res = await deliverOrder(orderId);
+    return { orderId: res.orderId, artifactId: res.artifactId, delivered: res.ok };
+  });
+
+  // --- daily financial intelligence -----------------------------------------
+  registerHandler('finance.daily_report', async () => {
+    const report = await financialReport('daily');
+    await remember({
+      kind: 'STRATEGY',
+      key: `finance:daily:${new Date().toISOString().slice(0, 10)}`,
+      content: JSON.stringify({
+        grossUsd: report.summary.grossRevenueUsd,
+        netProfitUsd: report.summary.netProfitUsd,
+        aiSpendUsd: report.aiSpendUsd,
+        orders: report.ordersByStatus,
+      }),
+      source: 'system',
+      epistemic: 'fact',
+      confidence: 1,
+    });
+    return { grossUsd: report.summary.grossRevenueUsd, netProfitUsd: report.summary.netProfitUsd };
   });
 }

@@ -18,6 +18,7 @@ import { currentMode, setMode, type OperatingMode } from '../lib/security/permis
 import { health, capabilityTable } from '../lib/observability/health.ts';
 import { stats as queueStats, cancel } from '../lib/queue/tasks.ts';
 import { summary as financeSummary, acquisitionMetrics } from '../lib/finance/ledger.ts';
+import { financialReport } from '../lib/finance/report.ts';
 import { snapshot as budgetSnapshot } from '../lib/security/budget.ts';
 import { prisma } from '../lib/core/db.ts';
 import { verifyChain } from '../lib/core/audit.ts';
@@ -28,11 +29,17 @@ import { runMission } from '../lib/commercial/mission.ts';
 import { status as gmailStatus } from '../lib/integrations/gmail.ts';
 import { status as hubspotStatus } from '../lib/integrations/hubspot.ts';
 import { status as stripeStatus, handleWebhook, createTestPaymentLink } from '../lib/integrations/stripe.ts';
+import { listProducts, getPublishedProduct, seedProducts } from '../lib/commercial/products.ts';
+import { generateLanding } from '../lib/commercial/landing.ts';
+import { createOrder, attachCheckout, listOrders, orderStats } from '../lib/commercial/orders.ts';
+import { getArtifact } from '../lib/commercial/delivery.ts';
+import { commercialOverview } from '../lib/commercial/overview.ts';
 import { run } from '../lib/core/orchestrator.ts';
 import { bootstrapWorker } from '../lib/core/worker-boot.ts';
 import { startScheduler } from '../lib/queue/scheduler.ts';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { shopHtml, thanksHtml, legalHtml, notFoundHtml } from './storefront.ts';
 
 const PORT = Number(process.env.PORT ?? 3300);
 
@@ -119,6 +126,11 @@ function json(res: ServerResponse, status: number, body: unknown): void {
   const text = JSON.stringify(body);
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'content-length': Buffer.byteLength(text) });
   res.end(text);
+}
+
+function sendHtml(res: ServerResponse, status: number, html: string): void {
+  res.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(html) });
+  res.end(html);
 }
 
 /**
@@ -402,6 +414,103 @@ route('POST', '/payments/link', true, async (_req, res, owner, body) => {
   json(res, 200, { ok: true, url: result.url, id: result.id, mode: result.mode });
 });
 
+// --- commercial operation (Phase 16) ---------------------------------------
+
+route('GET', '/commercial/overview', true, async (_req, res) => {
+  json(res, 200, await commercialOverview());
+});
+
+route('GET', '/finance/report', true, async (req, res) => {
+  const url = new URL(req.url ?? '/', 'http://x');
+  const label = (url.searchParams.get('period') ?? 'all') as 'daily' | 'monthly' | 'all';
+  json(res, 200, await financialReport(['daily', 'monthly', 'all'].includes(label) ? label : 'all'));
+});
+
+route('GET', '/products', true, async (_req, res) => {
+  json(res, 200, { products: await listProducts(false) });
+});
+
+route('POST', '/products/seed', true, async (_req, res, owner) => {
+  const count = await seedProducts();
+  const products = await listProducts(false);
+  for (const p of products) if (p.status === 'PUBLISHED') await generateLanding(p.slug);
+  await audit({ actorType: 'owner', actorId: owner?.id, action: 'products.seeded', severity: 'info', metadata: { count } });
+  json(res, 200, { ok: true, count });
+});
+
+route('POST', '/products/publish', true, async (_req, res, owner, body) => {
+  const slug = String(body['slug'] ?? '');
+  const status = String(body['status'] ?? 'PUBLISHED');
+  if (!slug) return json(res, 400, { error: 'slug is required' });
+  if (!['DRAFT', 'PUBLISHED', 'PAUSED', 'ARCHIVED'].includes(status)) return json(res, 400, { error: 'invalid status' });
+  await prisma.product.update({ where: { slug }, data: { status: status as never } });
+  if (status === 'PUBLISHED') await generateLanding(slug);
+  await audit({ actorType: 'owner', actorId: owner?.id, action: 'product.status', target: slug, severity: 'warn', metadata: { status } });
+  json(res, 200, { ok: true, slug, status });
+});
+
+route('POST', '/products/landing', true, async (_req, res, _owner, body) => {
+  const slug = String(body['slug'] ?? '');
+  if (!slug) return json(res, 400, { error: 'slug is required' });
+  await generateLanding(slug);
+  json(res, 200, { ok: true, slug });
+});
+
+route('GET', '/orders', true, async (_req, res) => {
+  const [orders, stats] = await Promise.all([listOrders(100), orderStats()]);
+  json(res, 200, { orders, stats });
+});
+
+route('POST', '/orders', true, async (_req, res, owner, body) => {
+  const slug = String(body['productSlug'] ?? body['slug'] ?? '');
+  if (!slug) return json(res, 400, { error: 'productSlug is required' });
+  try {
+    const order = await createOrder({
+      productSlug: slug,
+      customerEmail: body['customerEmail'] ? String(body['customerEmail']) : undefined,
+      customerName: body['customerName'] ? String(body['customerName']) : undefined,
+      requirements: (body['requirements'] as Record<string, unknown>) ?? {},
+    });
+    await audit({ actorType: 'owner', actorId: owner?.id, action: 'order.created', target: order.id, severity: 'info' });
+    json(res, 200, { ok: true, order });
+  } catch (err) {
+    json(res, 400, { error: (err as Error).message });
+  }
+});
+
+/**
+ * Create a Stripe LIVE Checkout session for a product order. This only creates a
+ * payable link and returns its URL; the order stays AWAITING_PAYMENT until a
+ * signature-verified webhook confirms collection. No charge is made here.
+ */
+route('POST', '/orders/checkout', true, async (_req, res, owner, body) => {
+  const orderId = String(body['orderId'] ?? '');
+  if (!orderId) return json(res, 400, { error: 'orderId is required' });
+  const order = await prisma.order.findUnique({ where: { id: orderId }, include: { product: true } });
+  if (!order) return json(res, 404, { error: 'order not found' });
+  if (order.status === 'PAID' || order.status === 'DELIVERED') return json(res, 400, { error: `order already ${order.status}` });
+  const base = String(body['baseUrl'] ?? `http://localhost:${PORT}`);
+  const result = await createTestPaymentLink({
+    amountUsd: Number(order.amountUsd),
+    productName: order.product.name,
+    successUrl: String(body['successUrl'] ?? `${base}/thanks?order=${order.id}`),
+    cancelUrl: String(body['cancelUrl'] ?? `${base}/buy/${order.product.slug}?cancelled=1`),
+    clientReferenceId: order.id,
+  });
+  if (!result.ok) return json(res, 400, { ok: false, error: result.reason });
+  await attachCheckout(order.id, result.id ?? '', result.url ?? '');
+  await audit({ actorType: 'owner', actorId: owner?.id, action: 'order.checkout_created', target: order.id, severity: 'info', metadata: { sessionId: result.id, mode: result.mode } });
+  json(res, 200, { ok: true, url: result.url, sessionId: result.id, mode: result.mode, orderId: order.id });
+});
+
+route('GET', '/orders/artifact', true, async (req, res) => {
+  const url = new URL(req.url ?? '/', 'http://x');
+  const id = url.searchParams.get('id') ?? '';
+  const artifact = id ? await getArtifact(id) : null;
+  if (!artifact) return json(res, 404, { error: 'artifact not found' });
+  json(res, 200, artifact);
+});
+
 const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
@@ -412,6 +521,39 @@ const server = createServer(async (req, res) => {
       if (authBypass()) html = html.replace('<body>', '<body data-auth-bypass="1">');
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(html) });
       res.end(html);
+      return;
+    }
+
+    // --- public storefront (Phase 16) --------------------------------------
+    if (req.method === 'GET' && url.pathname === '/shop') {
+      const products = await listProducts(true);
+      return sendHtml(res, 200, shopHtml(products));
+    }
+
+    if (req.method === 'GET' && url.pathname.startsWith('/buy/')) {
+      const slug = decodeURIComponent(url.pathname.slice('/buy/'.length));
+      const product = await getPublishedProduct(slug);
+      if (!product) return sendHtml(res, 404, notFoundHtml('Product not found'));
+      if (product.landingHtml) return sendHtml(res, 200, product.landingHtml);
+      await generateLanding(slug);
+      const refreshed = await getPublishedProduct(slug);
+      return sendHtml(res, 200, refreshed?.landingHtml ?? notFoundHtml('Product not found'));
+    }
+
+    if (req.method === 'GET' && url.pathname === '/thanks') {
+      return sendHtml(res, 200, thanksHtml(url.searchParams.get('order') ?? ''));
+    }
+
+    if (req.method === 'GET' && url.pathname.startsWith('/legal/')) {
+      const page = url.pathname.slice('/legal/'.length);
+      const html = legalHtml(page);
+      if (!html) return sendHtml(res, 404, notFoundHtml('Page not found'));
+      return sendHtml(res, 200, html);
+    }
+
+    if (req.method === 'GET' && url.pathname === '/robots.txt') {
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
+      res.end('User-agent: *\nAllow: /\nDisallow: /orders\nDisallow: /commercial\n');
       return;
     }
 

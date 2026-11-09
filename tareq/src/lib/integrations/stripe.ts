@@ -1,6 +1,7 @@
 import { hasSecret } from '../env.ts';
 import { prisma } from '../core/db.ts';
 import { recordRevenue, record } from '../finance/ledger.ts';
+import { markPaid } from '../commercial/orders.ts';
 import { logger } from '../core/logger.ts';
 
 /**
@@ -197,6 +198,33 @@ export async function handleWebhook(rawBody: string, signatureHeader: string): P
     externalId: `${externalId}:fee`,
     evidence: { note: 'estimated Stripe processing fee' },
   });
+
+  // Activate a product order if this checkout carried one as its reference.
+  // This is the ONLY place an order is marked PAID, and it is idempotent.
+  if (decision.dealId) {
+    const session = event.data?.object ?? {};
+    const customerEmail =
+      (session['customer_details'] as { email?: string } | undefined)?.email ??
+      (typeof session['customer_email'] === 'string' ? (session['customer_email'] as string) : undefined);
+    try {
+      const order = await prisma.order.findUnique({ where: { id: decision.dealId } });
+      if (order) {
+        await markPaid({
+          orderId: order.id,
+          sessionId: typeof session['id'] === 'string' ? (session['id'] as string) : undefined,
+          paymentIntentId: typeof session['payment_intent'] === 'string' ? (session['payment_intent'] as string) : undefined,
+          amountUsd,
+        });
+        if (customerEmail && !order.customerEmail) {
+          await prisma.order.update({ where: { id: order.id }, data: { customerEmail } });
+        }
+        logger.info('order activated from verified payment', { orderId: order.id, amountUsd });
+      }
+    } catch (err) {
+      logger.error('failed to activate order from webhook', { ref: decision.dealId, error: (err as Error).message });
+    }
+  }
+
   logger.info('stripe revenue recorded', { eventId: event.id, amountUsd });
   return { handled: true, recorded: true, amountUsd };
 }
