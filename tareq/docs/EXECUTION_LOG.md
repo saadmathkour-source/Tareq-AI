@@ -54,23 +54,18 @@ Reverse-chronological. Every entry records what was actually run and observed.
 - Note: `db push` hangs against the pooled (pgbouncer) URL — DDL must use the
   direct 5432 connection, which is what `directUrl` is for.
 
-### Deploy status (blocked — owner action required)
-- The Phase 17 commit is ready on local `main` but **could not be pushed**. The
-  credentials available in this environment are all insufficient:
-  - The refreshed `GITHUB_TOKEN` is a **fine-grained token with read-only
-    Contents** (empty `x-oauth-scopes`; `POST /git/blobs` → `403 Resource not
-    accessible by integration`), and the OpenHands GitHub App reports **zero
-    installations** for this account.
-  - Two user-supplied `ghp_…` tokens were tried (via `git remote set-url` and
-    the `x-oauth-basic` form). Both fail: `git push` returns `Invalid username
-    or token` and the GitHub API returns `401 Bad credentials` (also on the
-    `git-receive-pack` handshake). The repository is **public**, so a token-less
-    `git ls-remote` still succeeds — which is why the failure is easy to miss.
-- A valid credential is required to push: a classic PAT with the `repo` scope,
-  or a fine-grained token with **Contents: Read and write** on
-  `saadmathkour-source/Tareq-AI`. The remote is configured as
-  `https://<token>@github.com/saadmathkour-source/Tareq-AI.git`; swapping in a
-  working token and running `git push origin main` triggers the Railway deploy.
+### Deploy (live)
+- Pushed to `main` and Railway redeployed. Production `/health` reports
+  `build.commit = 9265b90…` with `database: ok`, and `/checkout/:slug` now serves
+  the purchase form (HTTP 200). The `preDeployCommand` applied the additive
+  `prisma db push` on the new release.
+- Follow-up fix: a non-UUID `order` query value made Prisma throw on the UUID
+  column, so `/orders/status?order=x` and `/thanks?order=x` returned HTTP 500.
+  `getPublicOrderStatus` now rejects a malformed id up front and the pages return
+  a clean 404. Covered by a new regression test.
+- Note on pushing: the remote must use the `username:token` form
+  (`https://<user>:<token>@github.com/...`). With only `token@` (no username),
+  git parses the token as the username and prompts for a password.
 
 ## 2026-11-07 — Targeted production-readiness & real-world capability audit
 

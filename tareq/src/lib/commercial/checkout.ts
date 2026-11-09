@@ -34,6 +34,7 @@ export interface PublicCheckoutResult {
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Reject anything that is not a plausible, length-bounded email address. */
 export function normalizeEmail(raw: unknown): string {
@@ -145,6 +146,9 @@ export interface PublicOrderStatus {
 }
 
 export async function getPublicOrderStatus(orderId: string): Promise<PublicOrderStatus | null> {
+  // A non-UUID id (a mistyped or probe link) would make Prisma throw on a UUID
+  // column; treat it as "not found" so the public page stays a clean 404.
+  if (!UUID_RE.test(orderId)) return null;
   const order = await prisma.order.findUnique({
     where: { id: orderId },
     include: { product: true, artifacts: true },

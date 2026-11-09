@@ -414,3 +414,11 @@ test('the public order status never exposes the buyer email', async () => {
   assert.equal(st?.orderId, orderId);
   assert.equal(JSON.stringify(st).includes('@example.com'), false);
 });
+
+test('a malformed order id is a clean not-found, never a server error', async () => {
+  // A UUID column makes Prisma throw on a non-UUID value; the public status and
+  // thanks pages must treat it as "not found" (404), not surface a 500.
+  assert.equal(await getPublicOrderStatus('x'), null);
+  assert.equal(await getPublicOrderStatus('not-a-uuid'), null);
+  assert.equal(await getPublicOrderStatus(''), null);
+});
