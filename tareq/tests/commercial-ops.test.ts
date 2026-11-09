@@ -20,8 +20,29 @@ import type { DemandScan } from '../src/lib/integrations/publicdata.ts';
 const MARK = `QTEST-16-${Date.now().toString(36)}`;
 const orderIds: string[] = [];
 
+/**
+ * Remove any residue a previously-killed run of this file left in the shared
+ * test database: delivery tasks, orders and their DELIVERY_COST ledger rows.
+ * Keys are the broad `QTEST-16-` prefix so an earlier run's timestamp is caught.
+ */
+async function purgePreviousRuns(): Promise<void> {
+  const stale = await prisma.order.findMany({ where: { customerEmail: { startsWith: 'QTEST-16-' } }, select: { id: true } });
+  for (const o of stale) {
+    await prisma.ledgerEntry.deleteMany({ where: { kind: 'DELIVERY_COST', evidence: { path: ['orderId'], equals: o.id } } });
+  }
+  await prisma.order.deleteMany({ where: { customerEmail: { startsWith: 'QTEST-16-' } } });
+  await prisma.task.deleteMany({ where: { idempotencyKey: { startsWith: 'QTEST-16-' } } });
+  await prisma.ledgerEntry.deleteMany({ where: { externalId: { contains: 'QTEST-16-' } } });
+}
+
+test.before(purgePreviousRuns);
+
 test.after(async () => {
-  for (const id of orderIds) await prisma.order.delete({ where: { id } }).catch(() => {});
+  await prisma.task.deleteMany({ where: { idempotencyKey: { startsWith: MARK } } });
+  for (const id of orderIds) {
+    await prisma.ledgerEntry.deleteMany({ where: { kind: 'DELIVERY_COST', evidence: { path: ['orderId'], equals: id } } });
+    await prisma.order.delete({ where: { id } }).catch(() => {});
+  }
   await prisma.$disconnect();
 });
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { tuneConnectionUrl } from '../src/lib/core/db.ts';
+import { tuneConnectionUrl, resolveDatabaseUrl, usingTestDatabase } from '../src/lib/core/db.ts';
 
 /**
  * The owner dashboard fires ~13 parallel reads on load. A Supabase template
@@ -31,4 +31,51 @@ test('tuneConnectionUrl never lowers a larger configured limit', () => {
 test('tuneConnectionUrl leaves an unparseable URL untouched', () => {
   assert.equal(tuneConnectionUrl('not a url'), 'not a url');
   assert.equal(tuneConnectionUrl(undefined), undefined);
+});
+
+test('resolveDatabaseUrl uses the isolated test DB when TAREQ_USE_TEST_DB=1', () => {
+  const saved = { t: process.env.TAREQ_USE_TEST_DB, td: process.env.TEST_DATABASE_URL, d: process.env.DATABASE_URL };
+  try {
+    process.env.DATABASE_URL = 'postgresql://u:p@prod:6543/postgres';
+    process.env.TEST_DATABASE_URL = 'postgresql://u:p@test:6543/tareq_test';
+    process.env.TAREQ_USE_TEST_DB = '1';
+    assert.equal(usingTestDatabase(), true);
+    assert.equal(new URL(resolveDatabaseUrl()!).pathname, '/tareq_test');
+  } finally {
+    if (saved.t === undefined) delete process.env.TAREQ_USE_TEST_DB; else process.env.TAREQ_USE_TEST_DB = saved.t;
+    if (saved.td === undefined) delete process.env.TEST_DATABASE_URL; else process.env.TEST_DATABASE_URL = saved.td;
+    if (saved.d === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = saved.d;
+  }
+});
+
+test('resolveDatabaseUrl refuses to run tests without an isolated test DB', () => {
+  const saved = { t: process.env.TAREQ_USE_TEST_DB, td: process.env.TEST_DATABASE_URL, d: process.env.DATABASE_URL };
+  try {
+    process.env.DATABASE_URL = 'postgresql://u:p@prod:6543/postgres';
+    delete process.env.TEST_DATABASE_URL;
+    process.env.TAREQ_USE_TEST_DB = '1';
+    assert.throws(() => resolveDatabaseUrl(), /TEST_DATABASE_URL is not set/);
+
+    process.env.TEST_DATABASE_URL = process.env.DATABASE_URL;
+    assert.throws(() => resolveDatabaseUrl(), /equals DATABASE_URL/);
+  } finally {
+    if (saved.t === undefined) delete process.env.TAREQ_USE_TEST_DB; else process.env.TAREQ_USE_TEST_DB = saved.t;
+    if (saved.td === undefined) delete process.env.TEST_DATABASE_URL; else process.env.TEST_DATABASE_URL = saved.td;
+    if (saved.d === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = saved.d;
+  }
+});
+
+test('the application (no flag) uses DATABASE_URL, never the test DB', () => {
+  const saved = { t: process.env.TAREQ_USE_TEST_DB, td: process.env.TEST_DATABASE_URL, d: process.env.DATABASE_URL };
+  try {
+    process.env.DATABASE_URL = 'postgresql://u:p@prod:6543/postgres';
+    process.env.TEST_DATABASE_URL = 'postgresql://u:p@test:6543/tareq_test';
+    delete process.env.TAREQ_USE_TEST_DB;
+    assert.equal(usingTestDatabase(), false);
+    assert.equal(new URL(resolveDatabaseUrl()!).pathname, '/postgres');
+  } finally {
+    if (saved.t === undefined) delete process.env.TAREQ_USE_TEST_DB; else process.env.TAREQ_USE_TEST_DB = saved.t;
+    if (saved.td === undefined) delete process.env.TEST_DATABASE_URL; else process.env.TEST_DATABASE_URL = saved.td;
+    if (saved.d === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = saved.d;
+  }
 });

@@ -101,12 +101,15 @@ export type StripeEventAction =
   | { action: 'revenue'; amountUsd: number; externalId: string; orderRef?: string; currency: string }
   | { action: 'test'; amountUsd: number; externalId: string; orderRef?: string; currency: string }
   | { action: 'failed'; amountUsd: number; externalId: string }
-  | { action: 'refund'; amountUsd: number; externalId: string; orderRef?: string; refunded: boolean }
-  | { action: 'dispute'; amountUsd: number; externalId: string; orderRef?: string }
+  | { action: 'refund'; amountUsd: number; externalId: string; orderRef?: string; refunded: boolean; partial: boolean; refundKey: string }
+  | { action: 'dispute'; amountUsd: number; externalId: string; orderRef?: string; disputeId: string; status: string }
+  | { action: 'dispute_reversal'; amountUsd: number; externalId: string; orderRef?: string; disputeId: string }
   | { action: 'ignore'; reason: string };
 
 const REFUND_EVENTS = new Set(['charge.refunded', 'charge.refund.updated', 'refund.updated']);
 const DISPUTE_EVENTS = new Set(['charge.dispute.created', 'charge.dispute.updated', 'charge.dispute.closed']);
+/** Dispute statuses that mean the merchant KEPT the money (reversal of a chargeback). */
+const DISPUTE_WON_STATUSES = new Set(['won']);
 
 export function classifyStripeEvent(event: { id?: string; type?: string; livemode?: boolean; data?: { object?: Record<string, unknown> } }): StripeEventAction {
   const session = event.data?.object ?? {};
@@ -121,14 +124,26 @@ export function classifyStripeEvent(event: { id?: string; type?: string; livemod
   }
 
   if (event.type && REFUND_EVENTS.has(event.type)) {
-    const refunded = session['refunded'] === true || session['amount_refunded'] != null;
+    // The refunded amount is cumulative (`amount_refunded` on the charge, or the
+    // single refund's `amount`). Partial = less than the original charge total.
+    const totalUsd = Number(session['amount'] ?? 0) / 100;
     const refundedUsd = Number(session['amount_refunded'] ?? session['amount'] ?? 0) / 100;
-    return { action: 'refund', amountUsd: refundedUsd, externalId, orderRef, refunded };
+    const partial = totalUsd > 0 && refundedUsd > 0 && refundedUsd < totalUsd;
+    // Key by the underlying charge so `charge.refunded` and `refund.updated`
+    // for the same charge cannot both add a refund row (double reduction).
+    const refundKey = String(session['charge'] ?? session['id'] ?? externalId);
+    return { action: 'refund', amountUsd: refundedUsd, externalId, orderRef, refunded: true, partial, refundKey };
   }
 
   if (event.type && DISPUTE_EVENTS.has(event.type)) {
+    const status = String(session['status'] ?? '');
     const disputedUsd = Number(session['amount'] ?? 0) / 100;
-    return { action: 'dispute', amountUsd: disputedUsd, externalId, orderRef };
+    // Key by the dispute id so created/updated/closed events collapse to one row.
+    const disputeId = String(session['id'] ?? externalId);
+    if (DISPUTE_WON_STATUSES.has(status)) {
+      return { action: 'dispute_reversal', amountUsd: disputedUsd, externalId, orderRef, disputeId };
+    }
+    return { action: 'dispute', amountUsd: disputedUsd, externalId, orderRef, disputeId, status };
   }
 
   if (event.type !== 'checkout.session.completed' && event.type !== 'checkout.session.async_payment_succeeded') {
@@ -312,35 +327,70 @@ export async function handleWebhook(rawBody: string, signatureHeader: string, op
   }
 
   if (decision.action === 'refund') {
-    if (!existing) {
+    // Keyed by the underlying charge, so `charge.refunded` and `refund.updated`
+    // for the same charge collapse to one ledger row (no double reduction). A
+    // later event carrying a higher cumulative `amount_refunded` updates it.
+    const existingRefund = await prisma.ledgerEntry.findUnique({ where: { externalId: decision.refundKey } });
+    if (!existingRefund) {
       await record({
         kind: 'REFUND',
         amountUsd: decision.amountUsd,
         provider: 'stripe',
-        externalId,
-        evidence: { webhookEventId: event.id, chargeId: session['id'], orderRef: decision.orderRef, refunded: decision.refunded, signatureVerified: true },
+        externalId: decision.refundKey,
+        evidence: { webhookEventId: event.id, chargeId: session['charge'] ?? session['id'], orderRef: decision.orderRef, partial: decision.partial, signatureVerified: true },
       });
-      logger.warn('stripe refund recorded (reduces net revenue)', { eventId: event.id, amountUsd: decision.amountUsd });
+      logger.warn('stripe refund recorded (reduces net revenue)', { eventId: event.id, amountUsd: decision.amountUsd, partial: decision.partial });
+    } else if (Math.abs(Number(existingRefund.amountUsd) - decision.amountUsd) > AMOUNT_TOLERANCE_USD) {
+      await prisma.ledgerEntry.update({ where: { externalId: decision.refundKey }, data: { amountUsd: decision.amountUsd } });
+      logger.warn('stripe refund amount updated', { eventId: event.id, from: Number(existingRefund.amountUsd), to: decision.amountUsd });
     }
-    const order = await findOrderForEvent(decision.orderRef, session);
-    if (order) await markOrderRefunded(order.id, String(event.id));
-    return { handled: true, recorded: !existing, reason: 'refund recorded', amountUsd: decision.amountUsd };
+    // Only a FULL refund closes the order; a partial refund leaves it in place.
+    if (!decision.partial) {
+      const order = await findOrderForEvent(decision.orderRef, session);
+      if (order) await markOrderRefunded(order.id, String(event.id));
+    }
+    return { handled: true, recorded: !existingRefund, reason: decision.partial ? 'partial refund recorded' : 'refund recorded', amountUsd: decision.amountUsd };
   }
 
   if (decision.action === 'dispute') {
-    if (!existing) {
+    // Keyed by dispute id: created/updated/closed collapse to one DISPUTE row.
+    const existingDispute = await prisma.ledgerEntry.findUnique({ where: { externalId: decision.disputeId } });
+    if (!existingDispute) {
       await record({
         kind: 'DISPUTE',
         amountUsd: decision.amountUsd,
         provider: 'stripe',
-        externalId,
-        evidence: { webhookEventId: event.id, disputeId: session['id'], orderRef: decision.orderRef, status: session['status'], signatureVerified: true },
+        externalId: decision.disputeId,
+        evidence: { webhookEventId: event.id, disputeId: decision.disputeId, status: decision.status, orderRef: decision.orderRef, signatureVerified: true },
       });
-      logger.warn('stripe dispute recorded (reduces net revenue)', { eventId: event.id, amountUsd: decision.amountUsd });
+      logger.warn('stripe dispute recorded (reduces net revenue)', { eventId: event.id, amountUsd: decision.amountUsd, status: decision.status });
+    } else if (existingDispute.kind === 'DISPUTE') {
+      await prisma.ledgerEntry.update({ where: { externalId: decision.disputeId }, data: { evidence: { webhookEventId: event.id, disputeId: decision.disputeId, status: decision.status, orderRef: decision.orderRef, signatureVerified: true } as never } });
     }
     const order = await findOrderForEvent(decision.orderRef, session);
     if (order) await markOrderRefunded(order.id, String(event.id));
-    return { handled: true, recorded: !existing, reason: 'dispute recorded', amountUsd: decision.amountUsd };
+    return { handled: true, recorded: !existingDispute, reason: `dispute recorded (${decision.status || 'open'})`, amountUsd: decision.amountUsd };
+  }
+
+  if (decision.action === 'dispute_reversal') {
+    // The chargeback was resolved in the merchant's favour: KEEP the DISPUTE row
+    // and add a DISPUTE_REVERSAL row of the same amount, so net revenue returns
+    // to where it was and refund exposure drops to zero.
+    const reversalId = `${decision.disputeId}:reversal`;
+    const existingReversal = await prisma.ledgerEntry.findUnique({ where: { externalId: reversalId } });
+    const disputeRow = await prisma.ledgerEntry.findUnique({ where: { externalId: decision.disputeId } });
+    if (!existingReversal && disputeRow?.kind === 'DISPUTE') {
+      await record({
+        kind: 'DISPUTE_REVERSAL',
+        amountUsd: decision.amountUsd || Number(disputeRow.amountUsd),
+        provider: 'stripe',
+        externalId: reversalId,
+        evidence: { webhookEventId: event.id, disputeId: decision.disputeId, orderRef: decision.orderRef, signatureVerified: true },
+      });
+      logger.info('stripe dispute reversal recorded (restores net revenue)', { eventId: event.id, disputeId: decision.disputeId });
+      return { handled: true, recorded: true, reason: 'dispute reversal recorded', amountUsd: decision.amountUsd };
+    }
+    return { handled: true, recorded: false, reason: 'dispute reversal with no open dispute to reverse' };
   }
 
   // action === 'revenue'

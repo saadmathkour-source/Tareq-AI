@@ -31,7 +31,34 @@ export function tuneConnectionUrl(raw: string | undefined): string | undefined {
   }
 }
 
-const dbUrl = tuneConnectionUrl(process.env.DATABASE_URL);
+/**
+ * Resolve the connection string to use.
+ *
+ * DB-writing tests run under `TAREQ_USE_TEST_DB=1` (set by `npm test`) and MUST
+ * target an isolated database via `TEST_DATABASE_URL`. When the flag is set but
+ * the test URL is missing — or points at the production database — we refuse to
+ * connect rather than risk writing test rows into production financial tables.
+ * The application (server/worker) never sets the flag, so it always uses
+ * `DATABASE_URL`.
+ */
+export function resolveDatabaseUrl(): string | undefined {
+  if (process.env.TAREQ_USE_TEST_DB !== '1') return tuneConnectionUrl(process.env.DATABASE_URL);
+  const test = process.env.TEST_DATABASE_URL;
+  if (!test) {
+    throw new Error('TAREQ_USE_TEST_DB=1 but TEST_DATABASE_URL is not set; refusing to run against the production database');
+  }
+  if (test === process.env.DATABASE_URL) {
+    throw new Error('TEST_DATABASE_URL equals DATABASE_URL; refusing to write tests into the production database');
+  }
+  return tuneConnectionUrl(test);
+}
+
+/** True when this process is configured to use the isolated test database. */
+export function usingTestDatabase(): boolean {
+  return process.env.TAREQ_USE_TEST_DB === '1';
+}
+
+const dbUrl = resolveDatabaseUrl();
 
 declare global {
   // eslint-disable-next-line no-var

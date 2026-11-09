@@ -213,3 +213,44 @@ test('stripe classifier separates refunds and disputes from ordinary revenue', (
   assert.equal(dispute.action, 'dispute');
   assert.equal((dispute as { amountUsd: number }).amountUsd, 149);
 });
+
+test('stripe classifier distinguishes partial from full refunds and keys by charge', () => {
+  const partial = classifyStripeEvent({
+    id: 'evt_pr1',
+    type: 'charge.refunded',
+    livemode: true,
+    data: { object: { id: 'ch_9', amount: 14900, amount_refunded: 5000, charge: 'ch_9', payment_intent: 'pi_9' } },
+  });
+  assert.equal(partial.action, 'refund');
+  if (partial.action === 'refund') {
+    assert.equal(partial.amountUsd, 50);
+    assert.equal(partial.partial, true);
+    assert.equal(partial.refundKey, 'ch_9');
+  }
+  const full = classifyStripeEvent({
+    id: 'evt_fr1',
+    type: 'charge.refunded',
+    livemode: true,
+    data: { object: { id: 'ch_9', amount: 14900, amount_refunded: 14900, charge: 'ch_9', payment_intent: 'pi_9' } },
+  });
+  assert.equal(full.action, 'refund');
+  if (full.action === 'refund') assert.equal(full.partial, false);
+});
+
+test('stripe classifier routes a won dispute to a reversal, a lost one to a dispute', () => {
+  const won = classifyStripeEvent({
+    id: 'evt_dw1',
+    type: 'charge.dispute.closed',
+    livemode: true,
+    data: { object: { id: 'dp_7', amount: 14900, status: 'won', payment_intent: 'pi_7' } },
+  });
+  assert.equal(won.action, 'dispute_reversal');
+  if (won.action === 'dispute_reversal') assert.equal(won.disputeId, 'dp_7');
+  const lost = classifyStripeEvent({
+    id: 'evt_dl1',
+    type: 'charge.dispute.closed',
+    livemode: true,
+    data: { object: { id: 'dp_8', amount: 14900, status: 'lost', payment_intent: 'pi_8' } },
+  });
+  assert.equal(lost.action, 'dispute');
+});

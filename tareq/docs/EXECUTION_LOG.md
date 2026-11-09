@@ -252,3 +252,56 @@ Fixed:
 Lesson recorded in `AGENTS.md`: any test that can enqueue or record against the
 shared database must (a) tag tasks with `QTEST-` and (b) mark revenue external
 ids with `_test_`, so a crash cannot corrupt production reporting.
+
+## Phase 16.2 — Final live-payment readiness verification
+
+### Test isolation (was the root cause of the $746 phantom)
+DB-writing tests shared the production database. Fixed structurally:
+- Created an isolated database `tareq_test` in the same Supabase project.
+- `src/lib/core/db.ts` now resolves its URL through `resolveDatabaseUrl()`:
+  when `TAREQ_USE_TEST_DB=1` (set by `npm test`) it connects to
+  `TEST_DATABASE_URL`; if that is missing or equals `DATABASE_URL` it THROWS and
+  the tests do not run (fail-closed). The server/worker never set the flag.
+- `scripts/test-db-setup.sh` (`npm run test:db:setup`) creates/syncs/seeds the
+  test DB; `TEST_DATABASE_URL`/`TEST_DIRECT_URL` documented in `.env.example`.
+- Proof: the full suite (213 tests) ran with production at ledger=0/orders=0 and
+  production was byte-for-byte unchanged afterwards; all writes landed in
+  `tareq_test`. The stripe-webhook purge prefix was narrowed from `QTEST-` to
+  `QTEST-16.1` so it can no longer delete another file's parallel-run tasks.
+
+### Stripe LIVE endpoint
+- Account `acct_1UPjwFPjQIhnOPY0` (US, USD). Endpoint
+  `we_1UZsqUPjQIhnOPY0sqmD2S3Q` → `https://tareq-ai-production.up.railway.app/webhooks/stripe`,
+  status `enabled`, `livemode=true`, created 2026-11-09 13:42:50Z.
+- Enabled events were aligned with the handler's supported set:
+  `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+  `checkout.session.async_payment_failed`, `payment_intent.payment_failed`,
+  `charge.refunded`, `charge.refund.updated`, `charge.dispute.created`,
+  `charge.dispute.updated`, `charge.dispute.closed`.
+
+### Refunds & disputes (hardened)
+- Partial refunds: only the refunded portion reduces net; a partial refund no
+  longer closes the order.
+- Refund events are keyed by the underlying charge, so `charge.refunded` and
+  `refund.updated` collapse to one row and a later higher cumulative amount
+  updates it (no double reduction).
+- Disputes are keyed by dispute id (created/updated/closed → one row). A dispute
+  resolved in the merchant's favour (`status: won`) records a
+  `DISPUTE_REVERSAL` that restores net revenue and clears refund exposure.
+
+### Ledger vs Stripe LIVE reconciliation
+- Stripe LIVE: 0 charges, 0 payment_intents, 0 refunds, 0 disputes, 0
+  `checkout.session.completed` events — no LIVE payment has ever succeeded
+  (only expired sessions exist).
+- Production ledger: 0 rows; `summary()` reports gross $0, net $0. The last
+  pre-existing test fixture (`it_test_pi_1`) and 2 stray `QTEST` delivery tasks
+  from an earlier killed run were removed.
+
+### Blocker found: production webhook signature verification
+A correctly-signed `ping` event is rejected by production
+(`signature verification failed`, HTTP 400) while the same secret verifies
+against a local server running the same code. Cause: the running Railway process
+started 2026-11-08 16:15Z, before the LIVE endpoint existed (created
+2026-11-09 13:42Z), so it is running a stale `STRIPE_WEBHOOK_SECRET`. A redeploy
+restarts the container and reloads the current secret. Until a real Stripe LIVE
+delivery is accepted with HTTP 200, first-sale readiness is NOT claimed.

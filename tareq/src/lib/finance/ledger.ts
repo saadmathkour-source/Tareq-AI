@@ -18,6 +18,7 @@ export type LedgerKind =
   | 'TEST_TRANSACTION'
   | 'REFUND'
   | 'DISPUTE'
+  | 'DISPUTE_REVERSAL'
   | 'FEE'
   | 'TAX_ESTIMATE'
   | 'AI_COST'
@@ -135,14 +136,16 @@ export async function summary(): Promise<FinancialSummary> {
     .reduce((acc, r) => acc + Number(r.amountUsd), 0);
   const refunds = byKind['REFUND'] ?? 0;
   const disputes = byKind['DISPUTE'] ?? 0;
+  const disputeReversals = byKind['DISPUTE_REVERSAL'] ?? 0;
   const fees = byKind['FEE'] ?? 0;
   const taxEstimateUsd = byKind['TAX_ESTIMATE'] ?? 0;
   const operatingCostsUsd = COST_KINDS.reduce((acc, k) => acc + (byKind[k] ?? 0), 0);
 
   // Money returned to the customer (refunds and chargebacks) reduces net
-  // revenue. Gross revenue stays as collected so the two are never conflated;
-  // refund exposure is surfaced separately as well.
-  const netRevenueUsd = grossRevenueUsd - refunds - disputes - fees;
+  // revenue; a won dispute (reversal) restores it. Gross revenue stays as
+  // collected so the two are never conflated. Net refund exposure is what is
+  // still unreversed.
+  const netRevenueUsd = grossRevenueUsd - refunds - disputes + disputeReversals - fees;
   const contributionMarginUsd = netRevenueUsd - operatingCostsUsd;
   const netProfitUsd = contributionMarginUsd - taxEstimateUsd;
 
@@ -154,7 +157,7 @@ export async function summary(): Promise<FinancialSummary> {
     netProfitUsd,
     cashCollectedUsd: grossRevenueUsd, // only confirmed revenue is counted as collected
     outstandingUsd: byKind['PAYMENT_PENDING'] ?? 0,
-    refundExposureUsd: refunds + disputes,
+    refundExposureUsd: Math.max(0, refunds + disputes - disputeReversals),
     taxEstimateUsd,
     testTransactionsUsd: (byKind['TEST_TRANSACTION'] ?? 0) + mislabelledTestUsd,
     failedPaymentsUsd: byKind['PAYMENT_FAILED'] ?? 0,

@@ -9,6 +9,8 @@ import { z } from 'zod';
 const serverSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   DIRECT_URL: z.string().min(1).optional(),
+  TEST_DATABASE_URL: z.string().min(1).optional(),
+  TEST_DIRECT_URL: z.string().min(1).optional(),
 
   TAREQ_OWNER_EMAIL: z.string().email().optional(),
   TAREQ_OWNER_PASSWORD: z.string().min(1).optional(),

@@ -342,3 +342,37 @@ set `TAREQ_AUTH_BYPASS=0`; optionally `TAREQ_WORKER_CONCURRENCY=2..4`.
   (`QTEST-…`, which the worker excludes). Test tags MUST start with `QTEST-`.
 - **Owner action:** register `…/webhooks/stripe` in Stripe and set
   `STRIPE_WEBHOOK_SECRET` in Railway.
+
+### Test database isolation (Phase 16.2 — MANDATORY)
+- Integration tests write to a **separate** database. `npm test` sets
+  `TAREQ_USE_TEST_DB=1`; `src/lib/core/db.ts` then connects to
+  `TEST_DATABASE_URL` (never `DATABASE_URL`). If `TEST_DATABASE_URL` is unset or
+  equal to `DATABASE_URL`, `resolveDatabaseUrl()` THROWS and the run aborts
+  (fail-closed). The server/worker never set the flag, so they always use
+  `DATABASE_URL`.
+- One-time setup: create database `tareq_test`, then `npm run test:db:setup`
+  (syncs schema + seeds). `TEST_DATABASE_URL`/`TEST_DIRECT_URL` live in `.env`.
+- Never point tests at production; a killed run must not be able to corrupt
+  production financial tables.
+- Test tags must be file-scoped: this repo uses `QTEST-16-` (commercial-ops) and
+  `QTEST-16.1` (stripe-webhook) and `QTEST-` (queue-deadlock). A purge hook must
+  delete only its OWN prefix — `deleteMany({ startsWith: 'QTEST-' })` can delete
+  another file's rows because test files run in parallel processes.
+
+### Stripe refunds & disputes (Phase 16.2)
+- Refund rows are keyed by the underlying **charge** (`charge.refunded` and
+  `refund.updated` collapse to one row; a higher cumulative `amount_refunded`
+  updates it). Partial refunds reduce net by the refunded amount only and do NOT
+  close the order; only a full refund marks it `REFUNDED`.
+- Dispute rows are keyed by **dispute id** (`charge.dispute.created/.updated/
+  .closed` → one row). A dispute won by the merchant records `DISPUTE_REVERSAL`,
+  restoring net revenue and clearing refund exposure.
+- Supported handler events: `checkout.session.completed`,
+  `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`,
+  `payment_intent.payment_failed`, `charge.refunded`, `charge.refund.updated`,
+  `charge.dispute.created`, `charge.dispute.updated`, `charge.dispute.closed`.
+  Keep the Stripe LIVE endpoint's enabled events equal to this set.
+- **Env changes need a restart:** a Railway process loads `STRIPE_WEBHOOK_SECRET`
+  at boot. If the endpoint is (re)created after the process started, the running
+  process holds a stale secret and rejects every real event until it is
+  redeployed/restarted.

@@ -24,24 +24,24 @@ const SECRET = `whsec_test_${randomUUID()}`;
 // with `QTEST-` so the live worker excludes any task it enqueues.
 const MARK = `QTEST-16.1_test_${Date.now().toString(36)}`;
 const orderIds: string[] = [];
-const eventIds: string[] = [];
 
 const realSecret = process.env.STRIPE_WEBHOOK_SECRET;
 process.env.STRIPE_WEBHOOK_SECRET = SECRET;
 
 /** Delete any rows a previously-killed run of this file may have left behind. */
 async function purgePreviousRuns(): Promise<void> {
-  await prisma.ledgerEntry.deleteMany({ where: { externalId: { contains: 'QTEST-16.1-' } } });
-  await prisma.task.deleteMany({ where: { idempotencyKey: { startsWith: 'QTEST-16.1-' } } });
-  await prisma.order.deleteMany({ where: { customerEmail: { startsWith: 'QTEST-16.1-' } } });
+  await prisma.ledgerEntry.deleteMany({ where: { externalId: { contains: 'QTEST-16.1' } } });
+  await prisma.task.deleteMany({ where: { idempotencyKey: { startsWith: 'QTEST-16.1' } } });
+  await prisma.order.deleteMany({ where: { customerEmail: { startsWith: 'QTEST-16.1' } } });
 }
 
 test.before(purgePreviousRuns);
 
 test.after(async () => {
   for (const id of orderIds) await prisma.order.delete({ where: { id } }).catch(() => {});
-  await prisma.ledgerEntry.deleteMany({ where: { externalId: { in: eventIds } } });
-  await prisma.ledgerEntry.deleteMany({ where: { externalId: { in: eventIds.map((e) => `${e}:fee`) } } });
+  // Every ledger row a test can create keys its externalId on MARK (revenue
+  // events, refund charge ids, dispute ids and their reversals).
+  await prisma.ledgerEntry.deleteMany({ where: { externalId: { contains: 'QTEST-16.1' } } });
   await prisma.task.deleteMany({ where: { idempotencyKey: { startsWith: MARK } } });
   if (realSecret === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
   else process.env.STRIPE_WEBHOOK_SECRET = realSecret;
@@ -56,7 +56,6 @@ function sign(payload: string): string {
 
 function completedEvent(orderId: string, amountCents = 14900, currency = 'usd'): { body: string; eventId: string } {
   const eventId = `evt_${MARK}_${randomUUID().slice(0, 8)}`;
-  eventIds.push(eventId);
   const body = JSON.stringify({
     id: eventId,
     type: 'checkout.session.completed',
@@ -156,7 +155,6 @@ test('an amount mismatch records the money but does NOT activate the order', asy
 test('a test-mode completion is recorded as a test transaction, never as revenue or an order', async () => {
   const orderId = await newOrder();
   const eventId = `evt_${MARK}_test_${randomUUID().slice(0, 8)}`;
-  eventIds.push(eventId);
   const body = JSON.stringify({
     id: eventId,
     type: 'checkout.session.completed',
@@ -188,12 +186,11 @@ test('a refund reduces net revenue and marks the order REFUNDED', async () => {
 
   const before = await summary();
   const refundId = `evt_${MARK}_refund_${randomUUID().slice(0, 8)}`;
-  eventIds.push(refundId);
   const refundBody = JSON.stringify({
     id: refundId,
     type: 'charge.refunded',
     livemode: true,
-    data: { object: { id: `ch_${randomUUID().slice(0, 8)}`, amount: 14900, amount_refunded: 14900, refunded: true, payment_intent: pi } },
+    data: { object: { id: `ch_${MARK}_${randomUUID().slice(0, 8)}`, amount: 14900, amount_refunded: 14900, refunded: true, payment_intent: pi } },
   });
 
   const res = await handleWebhook(refundBody, sign(refundBody));
@@ -217,12 +214,11 @@ test('a dispute reduces net revenue and is never ordinary revenue', async () => 
 
   const before = await summary();
   const disputeId = `evt_${MARK}_dispute_${randomUUID().slice(0, 8)}`;
-  eventIds.push(disputeId);
   const disputeBody = JSON.stringify({
     id: disputeId,
     type: 'charge.dispute.created',
     livemode: true,
-    data: { object: { id: `dp_${randomUUID().slice(0, 8)}`, amount: 14900, payment_intent: pi, status: 'needs_response' } },
+    data: { object: { id: `dp_${MARK}_${randomUUID().slice(0, 8)}`, amount: 14900, payment_intent: pi, status: 'needs_response' } },
   });
 
   const res = await handleWebhook(disputeBody, sign(disputeBody));
@@ -234,7 +230,6 @@ test('a dispute reduces net revenue and is never ordinary revenue', async () => 
 
 test('a failed payment is recorded as PAYMENT_FAILED and never as revenue', async () => {
   const eventId = `evt_${MARK}_fail_${randomUUID().slice(0, 8)}`;
-  eventIds.push(eventId);
   const body = JSON.stringify({
     id: eventId,
     type: 'payment_intent.payment_failed',
@@ -254,7 +249,6 @@ test('a failed payment is recorded as PAYMENT_FAILED and never as revenue', asyn
 test('an unpaid completed session is ignored (stays outstanding, never revenue)', async () => {
   const orderId = await newOrder();
   const eventId = `evt_${MARK}_unpaid_${randomUUID().slice(0, 8)}`;
-  eventIds.push(eventId);
   const body = JSON.stringify({
     id: eventId,
     type: 'checkout.session.completed',
@@ -281,4 +275,147 @@ test('a verified payment with no matching order records revenue but activates no
   assert.equal(res.recorded, true);
   const deliveries = await prisma.task.count({ where: { idempotencyKey: `${MARK}:order.deliver:${missingOrder}` } });
   assert.equal(deliveries, 0);
+});
+
+// --- partial refunds, dispute reversals and async safety -------------------
+
+test('a partial refund reduces net by the refunded amount and keeps the order open', async () => {
+  const orderId = await newOrder();
+  const paid = completedEvent(orderId);
+  await handleWebhook(paid.body, sign(paid.body), { deliveryKeyPrefix: `${MARK}:` });
+  const pi = (JSON.parse(paid.body).data.object as { payment_intent: string }).payment_intent;
+  const charge = `ch_${MARK}_${randomUUID().slice(0, 8)}`;
+
+  const before = await summary();
+  const refundBody = JSON.stringify({
+    id: `evt_${MARK}_pr_${randomUUID().slice(0, 8)}`,
+    type: 'charge.refunded',
+    livemode: true,
+    data: { object: { id: charge, charge, amount: 14900, amount_refunded: 5000, payment_intent: pi } },
+  });
+  const res = await handleWebhook(refundBody, sign(refundBody));
+  assert.equal(res.handled, true);
+  assert.equal(res.recorded, true);
+  assert.match(String(res.reason), /partial refund/);
+
+  const after = await summary();
+  assert.ok(Math.abs(after.netRevenueUsd - (before.netRevenueUsd - 50)) < 0.01, 'only the refunded $50 reduces net');
+  assert.equal(after.refundExposureUsd, before.refundExposureUsd + 50);
+
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  assert.notEqual(order!.status, 'REFUNDED', 'a partial refund does not close the order');
+});
+
+test('a later cumulative refund updates the same row instead of double-reducing', async () => {
+  const orderId = await newOrder();
+  const paid = completedEvent(orderId);
+  await handleWebhook(paid.body, sign(paid.body), { deliveryKeyPrefix: `${MARK}:` });
+  const pi = (JSON.parse(paid.body).data.object as { payment_intent: string }).payment_intent;
+  const charge = `ch_${MARK}_${randomUUID().slice(0, 8)}`;
+
+  const first = JSON.stringify({
+    id: `evt_${MARK}_r1_${randomUUID().slice(0, 8)}`,
+    type: 'charge.refunded',
+    livemode: true,
+    data: { object: { id: charge, charge, amount: 14900, amount_refunded: 5000, payment_intent: pi } },
+  });
+  await handleWebhook(first, sign(first));
+  const afterFirst = await summary();
+
+  const second = JSON.stringify({
+    id: `evt_${MARK}_r2_${randomUUID().slice(0, 8)}`,
+    type: 'refund.updated',
+    livemode: true,
+    data: { object: { id: `re_${randomUUID().slice(0, 8)}`, charge, amount: 14900, amount_refunded: 14900, payment_intent: pi } },
+  });
+  await handleWebhook(second, sign(second));
+  const afterSecond = await summary();
+
+  const rows = await prisma.ledgerEntry.count({ where: { kind: 'REFUND', externalId: charge } });
+  assert.equal(rows, 1, 'the two events collapse to one refund row');
+  assert.ok(Math.abs(afterSecond.netRevenueUsd - (afterFirst.netRevenueUsd - 99)) < 0.01, 'the row is updated, not added');
+});
+
+test('a won dispute adds a reversal that restores net revenue and clears exposure', async () => {
+  const orderId = await newOrder();
+  const paid = completedEvent(orderId);
+  await handleWebhook(paid.body, sign(paid.body), { deliveryKeyPrefix: `${MARK}:` });
+  const pi = (JSON.parse(paid.body).data.object as { payment_intent: string }).payment_intent;
+  const dp = `dp_${MARK}_${randomUUID().slice(0, 8)}`;
+
+  const created = JSON.stringify({
+    id: `evt_${MARK}_dc_${randomUUID().slice(0, 8)}`,
+    type: 'charge.dispute.created',
+    livemode: true,
+    data: { object: { id: dp, amount: 14900, payment_intent: pi, status: 'needs_response' } },
+  });
+  await handleWebhook(created, sign(created));
+  const afterDispute = await summary();
+
+  const won = JSON.stringify({
+    id: `evt_${MARK}_dw_${randomUUID().slice(0, 8)}`,
+    type: 'charge.dispute.closed',
+    livemode: true,
+    data: { object: { id: dp, amount: 14900, payment_intent: pi, status: 'won' } },
+  });
+  const res = await handleWebhook(won, sign(won));
+  assert.equal(res.handled, true);
+  assert.equal(res.recorded, true);
+  assert.match(String(res.reason), /reversal/);
+
+  const afterWon = await summary();
+  assert.ok(Math.abs(afterWon.netRevenueUsd - (afterDispute.netRevenueUsd + 149)) < 0.01, 'net revenue restored on a won dispute');
+  assert.equal(afterWon.refundExposureUsd, afterDispute.refundExposureUsd - 149, 'exposure cleared');
+});
+
+test('repeated dispute updates collapse to a single DISPUTE row', async () => {
+  const orderId = await newOrder();
+  const paid = completedEvent(orderId);
+  await handleWebhook(paid.body, sign(paid.body), { deliveryKeyPrefix: `${MARK}:` });
+  const pi = (JSON.parse(paid.body).data.object as { payment_intent: string }).payment_intent;
+  const dp = `dp_${MARK}_${randomUUID().slice(0, 8)}`;
+
+  for (const status of ['needs_response', 'under_review', 'needs_response']) {
+    const body = JSON.stringify({
+      id: `evt_${MARK}_du_${randomUUID().slice(0, 8)}`,
+      type: 'charge.dispute.updated',
+      livemode: true,
+      data: { object: { id: dp, amount: 14900, payment_intent: pi, status } },
+    });
+    await handleWebhook(body, sign(body));
+  }
+  const rows = await prisma.ledgerEntry.count({ where: { kind: 'DISPUTE', externalId: dp } });
+  assert.equal(rows, 1, 'created/updated collapse to one dispute row');
+});
+
+test('an async payment success activates the order; an async failure never does', async () => {
+  // async success behaves exactly like completed (paid) -> order activated.
+  const okOrder = await newOrder();
+  const okEventId = `evt_${MARK}_as_${randomUUID().slice(0, 8)}`;
+  const okBody = JSON.stringify({
+    id: okEventId,
+    type: 'checkout.session.async_payment_succeeded',
+    livemode: true,
+    data: { object: { id: `cs_${randomUUID().slice(0, 8)}`, amount_total: 14900, currency: 'usd', payment_status: 'paid', client_reference_id: okOrder, customer_details: { email: `${MARK}@example.com` } } },
+  });
+  const okRes = await handleWebhook(okBody, sign(okBody), { deliveryKeyPrefix: `${MARK}:` });
+  assert.equal(okRes.handled, true);
+  const okRow = await prisma.order.findUnique({ where: { id: okOrder } });
+  assert.ok(['PAID', 'IN_DELIVERY', 'DELIVERED'].includes(okRow!.status), 'async success activates');
+
+  // async failure must never activate or enqueue delivery.
+  const badOrder = await newOrder();
+  const badBody = JSON.stringify({
+    id: `evt_${MARK}_af_${randomUUID().slice(0, 8)}`,
+    type: 'checkout.session.async_payment_failed',
+    livemode: true,
+    data: { object: { id: `cs_${randomUUID().slice(0, 8)}`, amount_total: 14900, client_reference_id: badOrder } },
+  });
+  const badRes = await handleWebhook(badBody, sign(badBody), { deliveryKeyPrefix: `${MARK}:` });
+  assert.equal(badRes.handled, true);
+  assert.equal(badRes.recorded, false);
+  const badRow = await prisma.order.findUnique({ where: { id: badOrder } });
+  assert.equal(badRow!.status, 'CREATED', 'async failure never activates');
+  const deliveries = await prisma.task.count({ where: { idempotencyKey: `${MARK}:order.deliver:${badOrder}` } });
+  assert.equal(deliveries, 0, 'async failure enqueues no delivery');
 });
