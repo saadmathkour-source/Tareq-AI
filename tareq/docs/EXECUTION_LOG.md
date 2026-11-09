@@ -300,8 +300,11 @@ DB-writing tests shared the production database. Fixed structurally:
 ### Blocker found: production webhook signature verification
 A correctly-signed `ping` event is rejected by production
 (`signature verification failed`, HTTP 400) while the same secret verifies
-against a local server running the same code. Cause: the running Railway process
+against a local server running the same code. The running Railway process
 started 2026-11-08 16:15Z, before the LIVE endpoint existed (created
-2026-11-09 13:42Z), so it is running a stale `STRIPE_WEBHOOK_SECRET`. A redeploy
-restarts the container and reloads the current secret. Until a real Stripe LIVE
-delivery is accepted with HTTP 200, first-sale readiness is NOT claimed.
+2026-11-09 13:42Z). A fresh deploy of `733607f` (verified live) did NOT change
+the result, so the `STRIPE_WEBHOOK_SECRET` value configured in Railway does not
+match this endpoint's signing secret — the value itself must be corrected in the
+Railway dashboard (Stripe → Webhooks → `we_1UZsqUPjQIhnOPY0sqmD2S3Q` → Reveal
+signing secret), then the service restarted. Until a real Stripe LIVE delivery
+is accepted with HTTP 200, first-sale readiness is NOT claimed.
