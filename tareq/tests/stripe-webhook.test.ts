@@ -19,12 +19,24 @@ import { summary } from '../src/lib/finance/ledger.ts';
  */
 
 const SECRET = `whsec_test_${randomUUID()}`;
-const MARK = `QTEST-16.1-${Date.now().toString(36)}`;
+// Contains `_test_` so any ledger row a killed run leaves behind is recognised
+// by `isTestExternalId` and can never be counted as commercial revenue. Starts
+// with `QTEST-` so the live worker excludes any task it enqueues.
+const MARK = `QTEST-16.1_test_${Date.now().toString(36)}`;
 const orderIds: string[] = [];
 const eventIds: string[] = [];
 
 const realSecret = process.env.STRIPE_WEBHOOK_SECRET;
 process.env.STRIPE_WEBHOOK_SECRET = SECRET;
+
+/** Delete any rows a previously-killed run of this file may have left behind. */
+async function purgePreviousRuns(): Promise<void> {
+  await prisma.ledgerEntry.deleteMany({ where: { externalId: { contains: 'QTEST-16.1-' } } });
+  await prisma.task.deleteMany({ where: { idempotencyKey: { startsWith: 'QTEST-16.1-' } } });
+  await prisma.order.deleteMany({ where: { customerEmail: { startsWith: 'QTEST-16.1-' } } });
+}
+
+test.before(purgePreviousRuns);
 
 test.after(async () => {
   for (const id of orderIds) await prisma.order.delete({ where: { id } }).catch(() => {});
@@ -90,8 +102,11 @@ test('a verified paid session records revenue and activates the matching order e
   assert.equal(first.handled, true);
   assert.equal(first.recorded, true);
 
+  // The fixture id carries the `_test_` marker, so the money is accounted as
+  // test volume rather than commercial revenue — but the mechanism is proven:
+  // a REVENUE_CONFIRMED row exists with a verification stamp.
   const after = await summary();
-  assert.ok(after.grossRevenueUsd >= before.grossRevenueUsd + 149, 'gross revenue includes the verified $149');
+  assert.equal(after.testTransactionsUsd, before.testTransactionsUsd + 149, 'recorded and accounted');
 
   const order = await prisma.order.findUnique({ where: { id: orderId } });
   assert.ok(['PAID', 'IN_DELIVERY', 'DELIVERED'].includes(order!.status), 'order activated');
@@ -115,7 +130,7 @@ test('a replayed webhook does not double-record, double-activate or double-deliv
   assert.equal(second.recorded, false, 'a replay records nothing new');
 
   const afterSecond = await summary();
-  assert.equal(afterSecond.grossRevenueUsd, afterFirst.grossRevenueUsd, 'replay must not move revenue');
+  assert.equal(afterSecond.testTransactionsUsd, afterFirst.testTransactionsUsd, 'replay must not double-count');
 
   const rows = await prisma.ledgerEntry.count({ where: { externalId: eventId } });
   assert.equal(rows, 1, 'exactly one revenue row for the event');

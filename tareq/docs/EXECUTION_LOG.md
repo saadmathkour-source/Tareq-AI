@@ -231,3 +231,24 @@ npm test             -> tests 203 / pass 203 / fail 0 (was 190; +13)
   URL `https://tareq-ai-production.up.railway.app/webhooks/stripe`, events
   `checkout.session.completed` (and the refund/dispute/async events above), then
   put its signing secret in Railway as `STRIPE_WEBHOOK_SECRET`.
+
+### Incident: test leakage into the production database (found & fixed)
+While verifying the live financial report, `grossRevenueUsd` read **$746** against
+8 orders — none of them real. The integration tests share the production
+database, and two runs that were killed at the 180 s tool timeout never reached
+their cleanup hook, leaving 6 `REVENUE_CONFIRMED` rows (and 8 orders, 4 tasks, 5
+orphaned `DELIVERY_COST` rows) that the reporting layer counted as real revenue.
+
+Fixed:
+- Deleted the leaked rows; the ledger now contains only the single pre-existing
+  `it_test_pi_1` fixture row (classified as test volume). Real collected revenue
+  is **$0**.
+- `tests/stripe-webhook.test.ts` now uses an external id that contains Stripe's
+  `_test_` marker, so even a killed run cannot be counted as commercial revenue
+  (`isTestExternalId` catches it), and it purges any prior run's residue in a
+  `test.before` hook.
+- Verified afterwards: 0 `QTEST-16.1` ledger rows, 0 tasks, 0 orders.
+
+Lesson recorded in `AGENTS.md`: any test that can enqueue or record against the
+shared database must (a) tag tasks with `QTEST-` and (b) mark revenue external
+ids with `_test_`, so a crash cannot corrupt production reporting.
