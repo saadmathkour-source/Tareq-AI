@@ -3,6 +3,11 @@
 
 generator client {
   provider = "prisma-client-js"
+  // Pin the engine to the Debian OpenSSL 3.0 target used by the production
+  // image (node:22-slim is Debian 12). Without this, `prisma generate` runs on
+  // whatever host builds the image and Prisma can fall back to guessing
+  // openssl-1.1.x, which then fails to load at runtime on OpenSSL 3.
+  binaryTargets = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {

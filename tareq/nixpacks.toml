@@ -1,0 +1,6 @@
+# Used only when this service is built with Nixpacks (i.e. Railway's Root
+# Directory is `tareq/`, so it picks up `tareq/railway.toml`). The Dockerfile
+# path installs openssl explicitly; this keeps the Nixpacks path equivalent so
+# Prisma's query engine can load libssl at runtime.
+[phases.setup]
+nixPkgs = ["nodejs_22", "openssl"]

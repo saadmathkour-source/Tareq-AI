@@ -86,6 +86,13 @@ async function dependenciesSatisfied(dependsOn: string[]): Promise<boolean> {
 }
 
 /**
+ * Idempotency-key prefix that marks a row as test-owned. Production workers
+ * exclude it by default (see `claimNext`), so queue tests can exercise the real
+ * claim SQL against a shared database without a live worker stealing their rows.
+ */
+export const TEST_TASK_IDEMPOTENCY_PREFIX = 'QTEST-';
+
+/**
  * Atomically claim the next runnable task for `workerId`.
  * Skips tasks that are locked and still fresh (visibility timeout = staleAfterMs).
  *
@@ -95,8 +102,19 @@ async function dependenciesSatisfied(dependsOn: string[]): Promise<boolean> {
  * flipped up to 20 rows to RUNNING but returned only one, leaving the rest
  * stuck as RUNNING until the stale-reclaim swept them.)
  */
-export async function claimNext(workerId: string, staleAfterMs = 5 * 60_000): Promise<ClaimedTask | null> {
+export async function claimNext(
+  workerId: string,
+  staleAfterMs = 5 * 60_000,
+  opts: { excludeIdempotencyPrefix?: string | null; includeIdempotencyPrefix?: string | null } = {},
+): Promise<ClaimedTask | null> {
   const staleBefore = new Date(Date.now() - staleAfterMs);
+  // Tests that exercise the real claim SQL against the shared production DB tag
+  // their rows with the `QTEST-` prefix. The production worker excludes them by
+  // default so a live worker can never race a test for the same rows; a test
+  // can instead *include* only its own prefix so it never claims unrelated work.
+  const excludePrefix =
+    opts.excludeIdempotencyPrefix === undefined ? TEST_TASK_IDEMPOTENCY_PREFIX : opts.excludeIdempotencyPrefix;
+  const includePrefix = opts.includeIdempotencyPrefix ?? null;
 
   const rows = await prisma.$queryRawUnsafe<
     Array<{ id: string; kind: string; payload: unknown; attempts: number; max_attempts: number; depends_on: string[] }>
@@ -108,6 +126,8 @@ export async function claimNext(workerId: string, staleAfterMs = 5 * 60_000): Pr
       WHERE t.status IN ('PENDING', 'QUEUED', 'RETRYING')
         AND t.run_at <= now()
         AND (t.locked_at IS NULL OR t.locked_at < $1)
+        AND ($3::text IS NULL OR t.idempotency_key IS NULL OR t.idempotency_key NOT LIKE $3 || '%')
+        AND ($4::text IS NULL OR t.idempotency_key LIKE $4 || '%')
         AND NOT EXISTS (
           SELECT 1 FROM tareq.tasks d
           WHERE d.id::text = ANY(t.depends_on) AND d.status <> 'SUCCEEDED'
@@ -132,6 +152,8 @@ export async function claimNext(workerId: string, staleAfterMs = 5 * 60_000): Pr
     `,
     staleBefore,
     workerId,
+    excludePrefix,
+    includePrefix,
   );
 
   for (const row of rows) {

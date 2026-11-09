@@ -6,6 +6,10 @@
 #
 # Build context is the repository root, so we copy only `tareq/`.
 FROM node:22-slim AS build
+# openssl 3 + ca-certificates: `node:22-slim` (Debian 12) ships without them.
+# Installing openssl before `prisma generate` lets Prisma select the
+# debian-openssl-3.0.x engine instead of guessing openssl-1.1.x.
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=development
 COPY tareq/package.json tareq/package-lock.json ./
@@ -14,6 +18,8 @@ COPY tareq/ ./
 RUN npm run build
 
 FROM node:22-slim AS runtime
+# libssl.so.3 must be present at runtime or the Prisma query engine cannot load.
+RUN apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=build /app/node_modules ./node_modules

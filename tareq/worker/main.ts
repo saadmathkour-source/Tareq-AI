@@ -17,8 +17,24 @@ async function main(): Promise<void> {
   env();
   await bootstrapWorker();
 
+  // maxTasks 0 = unlimited (run forever). A positive value drains a bounded
+  // batch then exits — useful for one-shot backfills, never a "disable".
   const maxTasks = process.env.TAREQ_WORKER_MAX_TASKS ? Number(process.env.TAREQ_WORKER_MAX_TASKS) : 0;
-  await run({ maxTasks, pollIntervalMs: 2_000 });
+  // Concurrent task slots per worker. Default 1 (sequential). Safe to raise:
+  // claims use FOR UPDATE SKIP LOCKED, so tasks are never executed twice.
+  const concurrency = process.env.TAREQ_WORKER_CONCURRENCY ? Number(process.env.TAREQ_WORKER_CONCURRENCY) : 1;
+
+  let stopping = false;
+  const stop = (signal: string): void => {
+    if (stopping) return;
+    stopping = true;
+    logger.info('worker stop requested', { signal });
+  };
+  process.on('SIGTERM', () => stop('SIGTERM'));
+  process.on('SIGINT', () => stop('SIGINT'));
+
+  logger.info('worker config', { maxTasks, concurrency });
+  await run({ maxTasks, concurrency, pollIntervalMs: 2_000, shouldStop: () => stopping });
   await prisma.$disconnect();
 }
 
