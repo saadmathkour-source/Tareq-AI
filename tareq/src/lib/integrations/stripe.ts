@@ -5,6 +5,9 @@ import { recordRevenue, record } from '../finance/ledger.ts';
 import { markPaid } from '../commercial/orders.ts';
 import { logger } from '../core/logger.ts';
 
+/** Reject signatures whose timestamp is too far from now, per Stripe's scheme. */
+const SIGNATURE_TOLERANCE_SECONDS = 300;
+
 /**
  * Stripe adapter (section 20).
  *
@@ -260,19 +263,26 @@ export async function handleWebhook(rawBody: string, signatureHeader: string, op
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!secret) return { handled: false, recorded: false, reason: 'webhook secret not configured' };
 
-  const parts = Object.fromEntries(
-    signatureHeader.split(',').map((p) => {
-      const [k, v] = p.split('=');
-      return [k, v];
-    }),
-  ) as { t?: string; v1?: string };
-  if (!parts.t || !parts.v1) return { handled: false, recorded: false, reason: 'malformed signature header' };
+  const parts = signatureHeader.split(',').map((p) => p.split('='));
+  const t = parts.find(([k]) => k === 't')?.[1];
+  const v1s = parts.filter(([k]) => k === 'v1').map(([, v]) => v).filter((v): v is string => Boolean(v));
+  if (!t || v1s.length === 0) return { handled: false, recorded: false, reason: 'malformed signature header' };
+
+  const timestamp = Number(t);
+  if (!Number.isFinite(timestamp)) return { handled: false, recorded: false, reason: 'malformed signature timestamp' };
+  if (Math.abs(Math.floor(Date.now() / 1000) - timestamp) > SIGNATURE_TOLERANCE_SECONDS) {
+    return { handled: false, recorded: false, reason: 'signature timestamp outside tolerance' };
+  }
 
   const { createHmac, timingSafeEqual } = await import('node:crypto');
-  const expected = createHmac('sha256', secret).update(`${parts.t}.${rawBody}`).digest('hex');
-  const a = Buffer.from(expected);
-  const b = Buffer.from(parts.v1);
-  if (a.length !== b.length || !timingSafeEqual(a, b)) {
+  const expected = Buffer.from(createHmac('sha256', secret).update(`${t}.${rawBody}`).digest('hex'));
+  // Multiple v1 signatures are valid while a Stripe signing secret is being
+  // rolled; accept the event if any of them matches, each compared in constant time.
+  const verified = v1s.some((v1) => {
+    const got = Buffer.from(v1);
+    return got.length === expected.length && timingSafeEqual(got, expected);
+  });
+  if (!verified) {
     return { handled: false, recorded: false, reason: 'signature verification failed' };
   }
 

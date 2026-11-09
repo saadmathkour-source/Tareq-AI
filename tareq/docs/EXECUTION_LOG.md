@@ -308,3 +308,49 @@ match this endpoint's signing secret — the value itself must be corrected in t
 Railway dashboard (Stripe → Webhooks → `we_1UZsqUPjQIhnOPY0sqmD2S3Q` → Reveal
 signing secret), then the service restarted. Until a real Stripe LIVE delivery
 is accepted with HTTP 200, first-sale readiness is NOT claimed.
+
+## Phase 16.3 — production webhook repair, signature hardening, readiness
+
+### Signature verification hardening (src/lib/integrations/stripe.ts)
+- Enforce a **timestamp tolerance** of 300s (Stripe's scheme): a signature whose
+  `t` is too far from now is rejected as `signature timestamp outside tolerance`.
+  A non-numeric `t` is rejected as `malformed signature timestamp`. This closes
+  a replay window that was previously unbounded.
+- Accept **any** `v1` value in the header (Stripe sends multiple while a signing
+  secret is being rolled), each compared in constant time. Header parsing was
+  rewritten to collect all `v1` parts instead of only the last.
+- Verification still runs on the exact raw body before any JSON parsing, and
+  comparison remains `crypto.timingSafeEqual`.
+
+### Proof that the code is correct (the blocker is an env value)
+Running the **compiled** server (`dist/src/app/server.js`) locally with the
+`.env` secret accepts a correctly-signed `ping` (HTTP 200, `ignored event type
+ping`), while production with the same code returns HTTP 400
+`signature verification failed`. `@prisma/client` auto-loads `.env` on import,
+so a locally "unset" secret is silently re-filled from `.env` — which is why a
+manual missing-secret test must target the shell environment, not the module.
+
+### Stripe LIVE endpoint (we_1UZsqUPjQIhnOPY0sqmD2S3Q)
+- status `enabled`, `livemode: true`, URL `.../webhooks/stripe`.
+- Enabled events equal the nine handler events exactly (no missing, no extra).
+- LIVE account `acct_1UPjwFPjQIhnOPY0`: US, USD, `charges_enabled: true`,
+  `payouts_enabled: true`, `details_submitted: true`.
+
+### Test-DB isolation (verified this phase)
+- Full suite (216 tests) ran with `TAREQ_USE_TEST_DB=1`; production afterwards:
+  ledger 0, orders 0, `QTEST` tasks 0. The isolated `tareq_test` DB absorbed all
+  writes (ledger 2, orders 11). Fail-closed is unit-tested in
+  `tests/db-pool.test.ts` (throws when `TEST_DATABASE_URL` is unset or equals
+  `DATABASE_URL`).
+
+### GitHub push blocker (unresolved — owner action required)
+The OpenHands GitHub credential is a **GitHub App user token** (`ghu_…`). It
+reads the repo (`permissions: admin/push: true` is reported by the API) but every
+write returns `403 Resource not accessible by integration` (verified with a
+`git/blobs` create). Root cause: the App **installation** does not grant
+**Contents: write** (and/or the repo is outside the installation's selected
+repositories). Fix: grant the App **Repository permissions → Contents: Read and
+write** and ensure `saadmathkour-source/Tareq-AI` is in its selected
+repositories, then re-issue/reconnect the token. No secret is embedded in git
+config or remote URLs.
+

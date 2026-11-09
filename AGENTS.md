@@ -376,3 +376,10 @@ set `TAREQ_AUTH_BYPASS=0`; optionally `TAREQ_WORKER_CONCURRENCY=2..4`.
   at boot. If the endpoint is (re)created after the process started, the running
   process holds a stale secret and rejects every real event until it is
   redeployed/restarted.
+
+### Stripe signature verification (Phase 16.3)
+- `handleWebhook` enforces a 300s timestamp tolerance and accepts any `v1`
+  signature in the header (secret rotation), comparing each in constant time.
+- To test the fail-closed DB guard manually, run in a directory without `.env`:
+  `@prisma/client` auto-loads `.env` on import, so a variable "unset" in the same
+  process is silently re-filled from the file.

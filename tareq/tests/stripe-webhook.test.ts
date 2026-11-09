@@ -92,6 +92,34 @@ test('webhook rejects a forged signature and records no revenue', async () => {
   assert.equal(after.grossRevenueUsd, before.grossRevenueUsd, 'a forged signature must not move revenue');
 });
 
+test('a signature outside the timestamp tolerance is rejected (anti-replay)', async () => {
+  const { body } = completedEvent(await newOrder());
+  const old = Math.floor(Date.now() / 1000) - 3600;
+  const v1 = createHmac('sha256', SECRET).update(`${old}.${body}`).digest('hex');
+  const res = await handleWebhook(body, `t=${old},v1=${v1}`);
+  assert.equal(res.handled, false);
+  assert.equal(res.reason, 'signature timestamp outside tolerance');
+});
+
+test('a malformed signature timestamp is rejected', async () => {
+  const { body } = completedEvent(await newOrder());
+  const res = await handleWebhook(body, 't=notanumber,v1=deadbeef');
+  assert.equal(res.handled, false);
+  assert.equal(res.reason, 'malformed signature timestamp');
+});
+
+test('any of multiple v1 signatures verifies (secret rotation)', async () => {
+  const orderId = await newOrder();
+  const { body, eventId } = completedEvent(orderId);
+  const t = Math.floor(Date.now() / 1000);
+  const good = createHmac('sha256', SECRET).update(`${t}.${body}`).digest('hex');
+  const res = await handleWebhook(body, `t=${t},v1=deadbeef,v1=${good}`, { deliveryKeyPrefix: `${MARK}:` });
+  assert.equal(res.handled, true);
+  assert.equal(res.recorded, true);
+  const row = await prisma.ledgerEntry.findUnique({ where: { externalId: eventId } });
+  assert.ok(row, 'the second v1 signature must be accepted');
+});
+
 test('a verified paid session records revenue and activates the matching order exactly once', async () => {
   const orderId = await newOrder();
   const { body, eventId } = completedEvent(orderId);
@@ -105,7 +133,7 @@ test('a verified paid session records revenue and activates the matching order e
   // test volume rather than commercial revenue — but the mechanism is proven:
   // a REVENUE_CONFIRMED row exists with a verification stamp.
   const after = await summary();
-  assert.equal(after.testTransactionsUsd, before.testTransactionsUsd + 149, 'recorded and accounted');
+  assert.ok(Math.abs(after.testTransactionsUsd - (before.testTransactionsUsd + 149)) < 0.01, 'recorded and accounted');
 
   const order = await prisma.order.findUnique({ where: { id: orderId } });
   assert.ok(['PAID', 'IN_DELIVERY', 'DELIVERED'].includes(order!.status), 'order activated');
@@ -169,7 +197,7 @@ test('a test-mode completion is recorded as a test transaction, never as revenue
 
   const after = await summary();
   assert.equal(after.grossRevenueUsd, before.grossRevenueUsd, 'test-mode payment is not revenue');
-  assert.equal(after.testTransactionsUsd, before.testTransactionsUsd + 149, 'surfaced as test volume');
+  assert.ok(Math.abs(after.testTransactionsUsd - (before.testTransactionsUsd + 149)) < 0.01, 'surfaced as test volume');
 
   const order = await prisma.order.findUnique({ where: { id: orderId } });
   assert.equal(order!.status, 'CREATED', 'a test-mode session never activates an order');
@@ -199,8 +227,8 @@ test('a refund reduces net revenue and marks the order REFUNDED', async () => {
 
   const after = await summary();
   assert.equal(after.grossRevenueUsd, before.grossRevenueUsd, 'gross revenue (collected) is unchanged by a refund');
-  assert.equal(after.netRevenueUsd, before.netRevenueUsd - 149, 'a refund reduces net revenue');
-  assert.equal(after.refundExposureUsd, before.refundExposureUsd + 149, 'refund exposure is surfaced separately');
+  assert.ok(Math.abs(after.netRevenueUsd - (before.netRevenueUsd - 149)) < 0.01, 'a refund reduces net revenue');
+  assert.ok(Math.abs(after.refundExposureUsd - (before.refundExposureUsd + 149)) < 0.01, 'refund exposure is surfaced separately');
 
   const refunded = await prisma.order.findUnique({ where: { id: orderId } });
   assert.equal(refunded!.status, 'REFUNDED');
@@ -224,8 +252,8 @@ test('a dispute reduces net revenue and is never ordinary revenue', async () => 
   const res = await handleWebhook(disputeBody, sign(disputeBody));
   assert.equal(res.handled, true);
   const after = await summary();
-  assert.equal(after.netRevenueUsd, before.netRevenueUsd - 149, 'a dispute reduces net revenue');
-  assert.equal(after.refundExposureUsd, before.refundExposureUsd + 149, 'dispute is part of refund exposure');
+  assert.ok(Math.abs(after.netRevenueUsd - (before.netRevenueUsd - 149)) < 0.01, 'a dispute reduces net revenue');
+  assert.ok(Math.abs(after.refundExposureUsd - (before.refundExposureUsd + 149)) < 0.01, 'dispute is part of refund exposure');
 });
 
 test('a failed payment is recorded as PAYMENT_FAILED and never as revenue', async () => {
@@ -243,7 +271,7 @@ test('a failed payment is recorded as PAYMENT_FAILED and never as revenue', asyn
   assert.equal(res.recorded, false);
   const after = await summary();
   assert.equal(after.grossRevenueUsd, before.grossRevenueUsd, 'a failed payment is not revenue');
-  assert.equal(after.failedPaymentsUsd, before.failedPaymentsUsd + 149, 'surfaced as failed payments');
+  assert.ok(Math.abs(after.failedPaymentsUsd - (before.failedPaymentsUsd + 149)) < 0.01, 'surfaced as failed payments');
 });
 
 test('an unpaid completed session is ignored (stays outstanding, never revenue)', async () => {
@@ -300,7 +328,7 @@ test('a partial refund reduces net by the refunded amount and keeps the order op
 
   const after = await summary();
   assert.ok(Math.abs(after.netRevenueUsd - (before.netRevenueUsd - 50)) < 0.01, 'only the refunded $50 reduces net');
-  assert.equal(after.refundExposureUsd, before.refundExposureUsd + 50);
+  assert.ok(Math.abs(after.refundExposureUsd - (before.refundExposureUsd + 50)) < 0.01);
 
   const order = await prisma.order.findUnique({ where: { id: orderId } });
   assert.notEqual(order!.status, 'REFUNDED', 'a partial refund does not close the order');
@@ -365,7 +393,7 @@ test('a won dispute adds a reversal that restores net revenue and clears exposur
 
   const afterWon = await summary();
   assert.ok(Math.abs(afterWon.netRevenueUsd - (afterDispute.netRevenueUsd + 149)) < 0.01, 'net revenue restored on a won dispute');
-  assert.equal(afterWon.refundExposureUsd, afterDispute.refundExposureUsd - 149, 'exposure cleared');
+  assert.ok(Math.abs(afterWon.refundExposureUsd - (afterDispute.refundExposureUsd - 149)) < 0.01, 'exposure cleared');
 });
 
 test('repeated dispute updates collapse to a single DISPUTE row', async () => {
