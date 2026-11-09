@@ -17,6 +17,7 @@ export type LedgerKind =
   | 'PAYMENT_FAILED'
   | 'TEST_TRANSACTION'
   | 'REFUND'
+  | 'DISPUTE'
   | 'FEE'
   | 'TAX_ESTIMATE'
   | 'AI_COST'
@@ -133,11 +134,15 @@ export async function summary(): Promise<FinancialSummary> {
     .filter((r) => !isTestExternalId(r.externalId))
     .reduce((acc, r) => acc + Number(r.amountUsd), 0);
   const refunds = byKind['REFUND'] ?? 0;
+  const disputes = byKind['DISPUTE'] ?? 0;
   const fees = byKind['FEE'] ?? 0;
   const taxEstimateUsd = byKind['TAX_ESTIMATE'] ?? 0;
   const operatingCostsUsd = COST_KINDS.reduce((acc, k) => acc + (byKind[k] ?? 0), 0);
 
-  const netRevenueUsd = grossRevenueUsd - refunds - fees;
+  // Money returned to the customer (refunds and chargebacks) reduces net
+  // revenue. Gross revenue stays as collected so the two are never conflated;
+  // refund exposure is surfaced separately as well.
+  const netRevenueUsd = grossRevenueUsd - refunds - disputes - fees;
   const contributionMarginUsd = netRevenueUsd - operatingCostsUsd;
   const netProfitUsd = contributionMarginUsd - taxEstimateUsd;
 
@@ -149,7 +154,7 @@ export async function summary(): Promise<FinancialSummary> {
     netProfitUsd,
     cashCollectedUsd: grossRevenueUsd, // only confirmed revenue is counted as collected
     outstandingUsd: byKind['PAYMENT_PENDING'] ?? 0,
-    refundExposureUsd: refunds,
+    refundExposureUsd: refunds + disputes,
     taxEstimateUsd,
     testTransactionsUsd: (byKind['TEST_TRANSACTION'] ?? 0) + mislabelledTestUsd,
     failedPaymentsUsd: byKind['PAYMENT_FAILED'] ?? 0,

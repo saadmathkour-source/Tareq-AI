@@ -157,3 +157,59 @@ test('stripe event classifier routes failures and unknown types away from revenu
   const noId = classifyStripeEvent({ type: 'checkout.session.completed', livemode: true });
   assert.equal(noId.action, 'ignore');
 });
+
+test('stripe classifier requires payment_status=paid before recognising revenue', () => {
+  const unpaid = classifyStripeEvent({
+    id: 'evt_u1',
+    type: 'checkout.session.completed',
+    livemode: true,
+    data: { object: { amount_total: 14900, id: 'cs_u1', payment_status: 'unpaid' } },
+  });
+  assert.equal(unpaid.action, 'ignore');
+  const nocost = classifyStripeEvent({
+    id: 'evt_u2',
+    type: 'checkout.session.completed',
+    livemode: true,
+    data: { object: { amount_total: 14900, id: 'cs_u2', payment_status: 'no_payment_required' } },
+  });
+  assert.equal(nocost.action, 'ignore');
+  const paid = classifyStripeEvent({
+    id: 'evt_u3',
+    type: 'checkout.session.completed',
+    livemode: true,
+    data: { object: { amount_total: 14900, id: 'cs_u3', payment_status: 'paid', currency: 'usd' } },
+  });
+  assert.equal(paid.action, 'revenue');
+  assert.equal((paid as { currency: string }).currency, 'usd');
+});
+
+test('stripe classifier routes async success to revenue and async failure away from it', () => {
+  const ok = classifyStripeEvent({
+    id: 'evt_a1',
+    type: 'checkout.session.async_payment_succeeded',
+    livemode: true,
+    data: { object: { amount_total: 9900, id: 'cs_a1', payment_status: 'paid' } },
+  });
+  assert.equal(ok.action, 'revenue');
+  const bad = classifyStripeEvent({ id: 'evt_a2', type: 'checkout.session.async_payment_failed', livemode: true, data: { object: { amount_total: 9900, id: 'cs_a2' } } });
+  assert.equal(bad.action, 'failed');
+});
+
+test('stripe classifier separates refunds and disputes from ordinary revenue', () => {
+  const refund = classifyStripeEvent({
+    id: 'evt_r1',
+    type: 'charge.refunded',
+    livemode: true,
+    data: { object: { id: 'ch_1', amount: 14900, amount_refunded: 14900, refunded: true, payment_intent: 'pi_1' } },
+  });
+  assert.equal(refund.action, 'refund');
+  assert.equal((refund as { amountUsd: number }).amountUsd, 149);
+  const dispute = classifyStripeEvent({
+    id: 'evt_d1',
+    type: 'charge.dispute.created',
+    livemode: true,
+    data: { object: { id: 'dp_1', amount: 14900, payment_intent: 'pi_1', status: 'needs_response' } },
+  });
+  assert.equal(dispute.action, 'dispute');
+  assert.equal((dispute as { amountUsd: number }).amountUsd, 149);
+});

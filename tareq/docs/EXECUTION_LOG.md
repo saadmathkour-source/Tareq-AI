@@ -156,3 +156,78 @@ curl /commercial/overview, /orders, /finance/report (owner) -> HTTP 200
 ### Blockers (require owner action)
 - A live Stripe webhook endpoint must be registered to the production URL.
 - Outbound acquisition (sending) still requires per-item owner approval.
+
+---
+
+## Phase 16.1 — Live Stripe webhook verification & first-sale readiness
+
+Verified the production Stripe integration end to end and fixed the defects the
+verification exposed. No real charge, refund or secret change was made.
+
+### Environment variable (exact name)
+- **`STRIPE_WEBHOOK_SECRET`** — the endpoint signing secret (`whsec_…`). Read in
+  `src/lib/integrations/stripe.ts`, declared in `src/lib/env.ts`, documented in
+  `.env.example`. Without it the route refuses every request (400).
+
+### Defects found and fixed
+1. **Revenue would have failed to record for every real product sale.** The
+   webhook passed the Checkout Session's `client_reference_id` (the **order id**)
+   into the ledger's `dealId` column, which is a foreign key to the `Deal` table.
+   Postgres rejected the insert, so a genuine $149 payment would not have been
+   recorded as revenue. Fixed: the order reference is kept in the ledger
+   `evidence` (`orderRef`) instead of the FK; the field was renamed to `orderRef`
+   to stop the two ids being conflated again.
+2. **`payment_status` was not required.** A `checkout.session.completed` with
+   `payment_status != 'paid'` could have been recognised. Now any non-`paid`
+   status is ignored (the payment stays outstanding).
+3. **Refunds and disputes were not handled.** `charge.refunded` /
+   `charge.dispute.*` were ignored, so refunded money stayed in gross revenue.
+   Added: a `DISPUTE` ledger kind, refund/dispute classification, `REFUND`/
+   `DISPUTE` rows reduce **net** revenue, refund exposure is surfaced, and the
+   matching order is marked `REFUNDED`.
+4. **Crash window between recording revenue and activating the order.**
+   Order activation was skipped when a ledger row already existed. Now the
+   activation step re-runs on every delivery attempt (idempotently), so a crash
+   after the revenue row cannot strand a paying customer.
+5. **Amount/currency consistency was not enforced before PAID.** Added: the
+   order is activated only when currency matches and the amount matches to
+   within one cent; a mismatch is logged + audited and the order stays unpaid
+   (real collected money is still recorded).
+6. **Test-isolation bug (Phase 16 tests).** `tests/commercial-ops.test.ts` tagged
+   its tasks `QTEST16-`, which does not match the worker's exclusion prefix
+   `QTEST-`, so the live production worker could claim a test's delivery task.
+   Fixed to `QTEST-16-`; orphaned rows were deleted.
+
+### Behaviour (verified)
+- Signature: HMAC-SHA256 over `${t}.${rawBody}`, constant-time compare; missing,
+  malformed or forged signatures are rejected and record nothing.
+- `livemode` is authoritative: only live-mode events are revenue; test-mode
+  completions are `TEST_TRANSACTION` (never revenue, never activate an order).
+- Supported events: `checkout.session.completed`,
+  `checkout.session.async_payment_succeeded`, `checkout.session.async_payment_failed`,
+  `payment_intent.payment_failed`, `charge.refunded`/`charge.refund.updated`/
+  `refund.updated`, `charge.dispute.created`/`.updated`/`.closed`.
+- Matching: `client_reference_id` (order id); refund/dispute matched by the
+  stored PaymentIntent id.
+- Idempotency: ledger unique `externalId`, `markPaid` status guard and the
+  delivery task idempotency key — each independently prevents duplicates.
+
+### Commands of record
+```
+npx tsc --noEmit     -> clean
+npm run build        -> success; dashboard asset copied
+npm test             -> tests 203 / pass 203 / fail 0 (was 190; +13)
+```
+
+### Honesty
+- No real charge, refund or dispute was created; every test used a signed,
+  live-mode fixture against an isolated per-test webhook secret.
+- Real collected revenue remains $0. The first genuine LIVE payment is
+  **NOT YET VERIFIED** until Stripe delivers a signed event to production and
+  the matching order is processed.
+
+### Blockers (require owner action)
+- Register the production endpoint in Stripe → Developers → Webhooks:
+  URL `https://tareq-ai-production.up.railway.app/webhooks/stripe`, events
+  `checkout.session.completed` (and the refund/dispute/async events above), then
+  put its signing secret in Railway as `STRIPE_WEBHOOK_SECRET`.

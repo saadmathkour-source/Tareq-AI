@@ -1,5 +1,6 @@
 import { hasSecret } from '../env.ts';
 import { prisma } from '../core/db.ts';
+import { audit } from '../core/audit.ts';
 import { recordRevenue, record } from '../finance/ledger.ts';
 import { markPaid } from '../commercial/orders.ts';
 import { logger } from '../core/logger.ts';
@@ -82,43 +83,165 @@ export interface WebhookResult {
   amountUsd?: number;
 }
 
+/** Tolerance (USD) when comparing a Stripe amount to the stored order amount. */
+const AMOUNT_TOLERANCE_USD = 0.01;
+
 /**
  * Pure classification of a verified Stripe event, so the revenue rules can be
  * unit-tested without a database. `livemode` is authoritative: a test-mode
  * payment is never revenue, whatever the key prefix says.
+ *
+ * Classification is deliberately strict for `checkout.session.completed`: money
+ * is only ever recognised when `payment_status === 'paid'`. Async payment
+ * methods that complete later (`checkout.session.async_payment_succeeded`) are
+ * treated the same way. A session that completed without being paid is ignored
+ * (it stays outstanding) rather than counted.
  */
 export type StripeEventAction =
-  | { action: 'revenue'; amountUsd: number; externalId: string; dealId?: string }
-  | { action: 'test'; amountUsd: number; externalId: string; dealId?: string }
+  | { action: 'revenue'; amountUsd: number; externalId: string; orderRef?: string; currency: string }
+  | { action: 'test'; amountUsd: number; externalId: string; orderRef?: string; currency: string }
   | { action: 'failed'; amountUsd: number; externalId: string }
+  | { action: 'refund'; amountUsd: number; externalId: string; orderRef?: string; refunded: boolean }
+  | { action: 'dispute'; amountUsd: number; externalId: string; orderRef?: string }
   | { action: 'ignore'; reason: string };
+
+const REFUND_EVENTS = new Set(['charge.refunded', 'charge.refund.updated', 'refund.updated']);
+const DISPUTE_EVENTS = new Set(['charge.dispute.created', 'charge.dispute.updated', 'charge.dispute.closed']);
 
 export function classifyStripeEvent(event: { id?: string; type?: string; livemode?: boolean; data?: { object?: Record<string, unknown> } }): StripeEventAction {
   const session = event.data?.object ?? {};
   const amountUsd = Number(session['amount_total'] ?? session['amount'] ?? 0) / 100;
+  const currency = typeof session['currency'] === 'string' ? (session['currency'] as string).toLowerCase() : 'usd';
   const externalId = String(event.id ?? session['id'] ?? '');
   if (!externalId) return { action: 'ignore', reason: 'event has no id' };
-  const dealId = typeof session['client_reference_id'] === 'string' ? session['client_reference_id'] : undefined;
+  const orderRef = typeof session['client_reference_id'] === 'string' ? (session['client_reference_id'] as string) : undefined;
 
   if (event.type === 'payment_intent.payment_failed' || event.type === 'checkout.session.async_payment_failed') {
     return { action: 'failed', amountUsd, externalId };
   }
-  if (event.type !== 'checkout.session.completed') {
+
+  if (event.type && REFUND_EVENTS.has(event.type)) {
+    const refunded = session['refunded'] === true || session['amount_refunded'] != null;
+    const refundedUsd = Number(session['amount_refunded'] ?? session['amount'] ?? 0) / 100;
+    return { action: 'refund', amountUsd: refundedUsd, externalId, orderRef, refunded };
+  }
+
+  if (event.type && DISPUTE_EVENTS.has(event.type)) {
+    const disputedUsd = Number(session['amount'] ?? 0) / 100;
+    return { action: 'dispute', amountUsd: disputedUsd, externalId, orderRef };
+  }
+
+  if (event.type !== 'checkout.session.completed' && event.type !== 'checkout.session.async_payment_succeeded') {
     return { action: 'ignore', reason: `ignored event type ${event.type}` };
   }
-  if (event.livemode !== true) return { action: 'test', amountUsd, externalId, dealId };
-  return { action: 'revenue', amountUsd, externalId, dealId };
+
+  // A completed session that is not actually paid must never be recognised.
+  const paymentStatus = session['payment_status'];
+  if (paymentStatus !== undefined && paymentStatus !== 'paid') {
+    return { action: 'ignore', reason: `session not paid (payment_status=${String(paymentStatus)})` };
+  }
+
+  if (event.livemode !== true) return { action: 'test', amountUsd, externalId, orderRef, currency };
+  return { action: 'revenue', amountUsd, externalId, orderRef, currency };
 }
 
 /**
- * Handle a raw Stripe webhook body. Verifies the signature, then records revenue
- * exactly once per Stripe event id.
+ * Resolve the internal order a verified event refers to. The trusted reference
+ * is the Checkout Session's `client_reference_id` (set to the order id when the
+ * link was created). Refund/dispute events, which describe a charge rather than
+ * a session, are matched by the stored PaymentIntent id instead.
+ */
+async function findOrderForEvent(
+  orderRef: string | undefined,
+  session: Record<string, unknown>,
+): Promise<{ id: string; amountUsd: number; currency: string; status: string; stripePaymentIntentId: string | null } | null> {
+  const shape = (o: { id: string; amountUsd: unknown; currency: string; status: string; stripePaymentIntentId: string | null }) => ({
+    id: o.id,
+    amountUsd: Number(o.amountUsd),
+    currency: o.currency,
+    status: o.status,
+    stripePaymentIntentId: o.stripePaymentIntentId,
+  });
+  if (orderRef) {
+    const byRef = await prisma.order.findUnique({ where: { id: orderRef } });
+    if (byRef) return shape(byRef);
+  }
+  const pi = typeof session['payment_intent'] === 'string' ? (session['payment_intent'] as string) : undefined;
+  if (pi) {
+    const byPi = await prisma.order.findFirst({ where: { stripePaymentIntentId: pi } });
+    if (byPi) return shape(byPi);
+  }
+  return null;
+}
+
+/**
+ * Activate a product order from a verified, paid session. Consistency is
+ * enforced before the transition: the order must exist, the currency must match
+ * and the amount must match to within a cent. A mismatch is logged and audited
+ * and the order is NOT marked paid (so no delivery is triggered); the collected
+ * money is still recorded by the caller, because it is real.
+ */
+async function activateOrder(
+  order: { id: string; amountUsd: number; currency: string; status: string },
+  session: Record<string, unknown>,
+  amountUsd: number,
+  currency: string,
+  deliveryKeyPrefix?: string,
+): Promise<{ activated: boolean; reason: string }> {
+  if (['PAID', 'IN_DELIVERY', 'DELIVERED'].includes(order.status)) {
+    return { activated: true, reason: 'already activated' };
+  }
+  if (order.currency.toLowerCase() !== currency.toLowerCase()) {
+    logger.error('webhook currency mismatch; order not activated', { orderId: order.id, orderCurrency: order.currency, paymentCurrency: currency });
+    await audit({ actorType: 'system', action: 'stripe.currency_mismatch', target: order.id, severity: 'error', metadata: { orderCurrency: order.currency, paymentCurrency: currency } });
+    return { activated: false, reason: 'currency mismatch' };
+  }
+  if (Math.abs(Number(order.amountUsd) - amountUsd) > AMOUNT_TOLERANCE_USD) {
+    logger.error('webhook amount mismatch; order not activated', { orderId: order.id, orderAmountUsd: Number(order.amountUsd), paymentAmountUsd: amountUsd });
+    await audit({ actorType: 'system', action: 'stripe.amount_mismatch', target: order.id, severity: 'error', metadata: { orderAmountUsd: Number(order.amountUsd), paymentAmountUsd: amountUsd } });
+    return { activated: false, reason: 'amount mismatch' };
+  }
+
+  const customerEmail =
+    (session['customer_details'] as { email?: string } | undefined)?.email ??
+    (typeof session['customer_email'] === 'string' ? (session['customer_email'] as string) : undefined);
+  await markPaid({
+    orderId: order.id,
+    sessionId: typeof session['id'] === 'string' ? (session['id'] as string) : undefined,
+    paymentIntentId: typeof session['payment_intent'] === 'string' ? (session['payment_intent'] as string) : undefined,
+    amountUsd,
+    ...(deliveryKeyPrefix ? { idempotencyKey: `${deliveryKeyPrefix}order.deliver:${order.id}` } : {}),
+  });
+  if (customerEmail) {
+    await prisma.order.update({ where: { id: order.id }, data: { customerEmail } });
+  }
+  logger.info('order activated from verified payment', { orderId: order.id, amountUsd });
+  return { activated: true, reason: 'activated' };
+}
+
+/** Mark the order behind a refunded/disputed charge as REFUNDED. Idempotent. */
+async function markOrderRefunded(orderId: string, eventId: string): Promise<void> {
+  const order = await prisma.order.findUnique({ where: { id: orderId } });
+  if (!order || order.status === 'REFUNDED' || order.status === 'CANCELLED') return;
+  await prisma.order.update({ where: { id: orderId }, data: { status: 'REFUNDED' } });
+  await audit({ actorType: 'system', action: 'order.refunded', target: orderId, severity: 'warn', metadata: { eventId } });
+}
+
+/**
+ * Handle a raw Stripe webhook body. Verifies the signature, then records the
+ * effect exactly once per Stripe event id.
  *
  * Signature verification follows Stripe's scheme: HMAC-SHA256 over
  * `${timestamp}.${payload}` with the webhook secret, compared in constant time.
  * Implemented with node:crypto so no Stripe SDK is required.
+ *
+ * Idempotency is durable and independent of any single table: the ledger's
+ * unique `externalId`, `markPaid`'s status guard and the delivery task's
+ * idempotency key each prevent duplicates, so a replayed or retried webhook can
+ * never double-record revenue, double-activate an order or double-deliver —
+ * even if the process died midway through a previous attempt.
  */
-export async function handleWebhook(rawBody: string, signatureHeader: string): Promise<WebhookResult> {
+export async function handleWebhook(rawBody: string, signatureHeader: string, opts: { deliveryKeyPrefix?: string } = {}): Promise<WebhookResult> {
   const secret = process.env.STRIPE_WEBHOOK_SECRET;
   if (!secret) return { handled: false, recorded: false, reason: 'webhook secret not configured' };
 
@@ -151,80 +274,115 @@ export async function handleWebhook(rawBody: string, signatureHeader: string): P
   }
 
   const { amountUsd, externalId } = decision;
+  const session = event.data?.object ?? {};
 
-  // Idempotency: an externalId already in the ledger means this webhook was
-  // already processed; do not record it twice.
+  // Durable idempotency: an externalId already in the ledger means this event's
+  // ledger effect is already recorded. Side effects that must still be repaired
+  // (an order left unpaid by a mid-flight crash) are re-run idempotently below.
   const existing = await prisma.ledgerEntry.findUnique({ where: { externalId } });
-  if (existing) return { handled: true, recorded: false, reason: 'already recorded', amountUsd };
 
   if (decision.action === 'failed') {
-    await record({
-      kind: 'PAYMENT_FAILED',
-      amountUsd,
-      provider: 'stripe',
-      externalId,
-      evidence: { webhookEventId: event.id, signatureVerified: true, reason: event.data?.object?.['last_payment_error'] ?? null },
-    });
-    logger.warn('stripe payment failed', { eventId: event.id, amountUsd });
+    if (!existing) {
+      await record({
+        kind: 'PAYMENT_FAILED',
+        amountUsd,
+        provider: 'stripe',
+        externalId,
+        evidence: { webhookEventId: event.id, signatureVerified: true, reason: session['last_payment_error'] ?? null },
+      });
+      logger.warn('stripe payment failed', { eventId: event.id, amountUsd });
+    }
     return { handled: true, recorded: false, reason: 'payment failed', amountUsd };
   }
 
-  // Test-mode payments are recorded for the audit trail but are NOT revenue.
+  // Test-mode payments are recorded for the audit trail but are NOT revenue and
+  // never activate an order.
   if (decision.action === 'test') {
-    await record({
-      kind: 'TEST_TRANSACTION',
-      amountUsd,
-      provider: 'stripe',
-      externalId,
-      dealId: decision.dealId,
-      evidence: { webhookEventId: event.id, sessionId: event.data?.object?.['id'], amountUsd, signatureVerified: true, mode: 'test' },
-    });
-    logger.info('stripe TEST transaction recorded (not revenue)', { eventId: event.id, amountUsd });
+    if (!existing) {
+      await record({
+        kind: 'TEST_TRANSACTION',
+        amountUsd,
+        provider: 'stripe',
+        externalId,
+        evidence: { webhookEventId: event.id, sessionId: session['id'], amountUsd, orderRef: decision.orderRef, signatureVerified: true, mode: 'test' },
+      });
+      logger.info('stripe TEST transaction recorded (not revenue)', { eventId: event.id, amountUsd });
+    }
     return { handled: true, recorded: false, reason: 'test-mode payment recorded as TEST_TRANSACTION, not revenue', amountUsd };
   }
 
-  await recordRevenue({
-    amountUsd,
-    externalId,
-    provider: 'stripe',
-    dealId: decision.dealId,
-    evidence: { webhookEventId: event.id, sessionId: event.data?.object?.['id'], amountUsd, signatureVerified: true, livemode: true },
-  });
-  // Stripe's own fee is a separate ledger kind, estimated at 2.9% + $0.30.
-  await record({
-    kind: 'FEE',
-    amountUsd: Number((amountUsd * 0.029 + 0.3).toFixed(4)),
-    provider: 'stripe',
-    externalId: `${externalId}:fee`,
-    evidence: { note: 'estimated Stripe processing fee' },
-  });
+  if (decision.action === 'refund') {
+    if (!existing) {
+      await record({
+        kind: 'REFUND',
+        amountUsd: decision.amountUsd,
+        provider: 'stripe',
+        externalId,
+        evidence: { webhookEventId: event.id, chargeId: session['id'], orderRef: decision.orderRef, refunded: decision.refunded, signatureVerified: true },
+      });
+      logger.warn('stripe refund recorded (reduces net revenue)', { eventId: event.id, amountUsd: decision.amountUsd });
+    }
+    const order = await findOrderForEvent(decision.orderRef, session);
+    if (order) await markOrderRefunded(order.id, String(event.id));
+    return { handled: true, recorded: !existing, reason: 'refund recorded', amountUsd: decision.amountUsd };
+  }
 
-  // Activate a product order if this checkout carried one as its reference.
-  // This is the ONLY place an order is marked PAID, and it is idempotent.
-  if (decision.dealId) {
-    const session = event.data?.object ?? {};
-    const customerEmail =
-      (session['customer_details'] as { email?: string } | undefined)?.email ??
-      (typeof session['customer_email'] === 'string' ? (session['customer_email'] as string) : undefined);
-    try {
-      const order = await prisma.order.findUnique({ where: { id: decision.dealId } });
-      if (order) {
-        await markPaid({
-          orderId: order.id,
-          sessionId: typeof session['id'] === 'string' ? (session['id'] as string) : undefined,
-          paymentIntentId: typeof session['payment_intent'] === 'string' ? (session['payment_intent'] as string) : undefined,
-          amountUsd,
-        });
-        if (customerEmail && !order.customerEmail) {
-          await prisma.order.update({ where: { id: order.id }, data: { customerEmail } });
-        }
-        logger.info('order activated from verified payment', { orderId: order.id, amountUsd });
-      }
-    } catch (err) {
-      logger.error('failed to activate order from webhook', { ref: decision.dealId, error: (err as Error).message });
+  if (decision.action === 'dispute') {
+    if (!existing) {
+      await record({
+        kind: 'DISPUTE',
+        amountUsd: decision.amountUsd,
+        provider: 'stripe',
+        externalId,
+        evidence: { webhookEventId: event.id, disputeId: session['id'], orderRef: decision.orderRef, status: session['status'], signatureVerified: true },
+      });
+      logger.warn('stripe dispute recorded (reduces net revenue)', { eventId: event.id, amountUsd: decision.amountUsd });
+    }
+    const order = await findOrderForEvent(decision.orderRef, session);
+    if (order) await markOrderRefunded(order.id, String(event.id));
+    return { handled: true, recorded: !existing, reason: 'dispute recorded', amountUsd: decision.amountUsd };
+  }
+
+  // action === 'revenue'
+  if (!existing) {
+    await recordRevenue({
+      amountUsd,
+      externalId,
+      provider: 'stripe',
+      evidence: { webhookEventId: event.id, sessionId: session['id'], amountUsd, currency: decision.currency, orderRef: decision.orderRef, signatureVerified: true, livemode: true },
+    });
+    // Stripe's own fee is a separate ledger kind, estimated at 2.9% + $0.30.
+    const feeId = `${externalId}:fee`;
+    if (!(await prisma.ledgerEntry.findUnique({ where: { externalId: feeId } }))) {
+      await record({
+        kind: 'FEE',
+        amountUsd: Number((amountUsd * 0.029 + 0.3).toFixed(4)),
+        provider: 'stripe',
+        externalId: feeId,
+        evidence: { note: 'estimated Stripe processing fee' },
+      });
+    }
+    logger.info('stripe revenue recorded', { eventId: event.id, amountUsd });
+  }
+
+  // Activate the matching order. Runs on every attempt (not only the first) so a
+  // crash between recording revenue and activating the order cannot strand a
+  // paying customer; `markPaid` is idempotent, so retries never double-activate
+  // or double-deliver.
+  let activated: { activated: boolean; reason: string } | null = null;
+  if (decision.orderRef) {
+    const order = await findOrderForEvent(decision.orderRef, session);
+    if (order) {
+      activated = await activateOrder(order, session, amountUsd, decision.currency, opts.deliveryKeyPrefix);
+    } else {
+      logger.warn('verified payment had no matching order', { ref: decision.orderRef });
     }
   }
 
-  logger.info('stripe revenue recorded', { eventId: event.id, amountUsd });
-  return { handled: true, recorded: true, amountUsd };
+  return {
+    handled: true,
+    recorded: !existing,
+    reason: activated && !activated.activated ? `revenue recorded; order not activated (${activated.reason})` : undefined,
+    amountUsd,
+  };
 }

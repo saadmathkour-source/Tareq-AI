@@ -316,3 +316,29 @@ set `TAREQ_AUTH_BYPASS=0`; optionally `TAREQ_WORKER_CONCURRENCY=2..4`.
   the live worker excludes the `QTEST` prefix.
 - **Commands:** `npx prisma db push` (additive; DB already in sync), `npx tsc
   --noEmit`, `npm run build`, `npm test` (190/190).
+
+## Phase 16.1 — Stripe webhook: env var, invariants and gotchas
+
+- **Signing secret env var (exact name): `STRIPE_WEBHOOK_SECRET`.** Missing ⇒ the
+  route returns 400 and records nothing.
+- **`client_reference_id` is the ORDER id, not a `Deal` id.** The ledger's
+  `dealId` column is a FK to `Deal`; never pass an order id there (Postgres will
+  reject the insert and revenue silently fails). The webhook keeps the order ref
+  in ledger `evidence.orderRef` and the classifier field is `orderRef`.
+- **`livemode` is authoritative.** Only `livemode: true` events become
+  `REVENUE_CONFIRMED`; test-mode completions are `TEST_TRANSACTION` and never
+  activate an order. `payment_status` must be `paid` (or absent) for a
+  `checkout.session.completed` to count.
+- **Refunds/disputes** (`charge.refunded`, `charge.dispute.*`) write `REFUND` /
+  `DISPUTE` ledger rows (new enum value `DISPUTE`), reduce **net** revenue and
+  mark the matched order `REFUNDED` (matched by stored `stripePaymentIntentId`).
+- **Idempotency is multi-layer:** ledger unique `externalId` (and `${id}:fee`),
+  `markPaid` status guard, delivery task idempotency key. Order activation
+  re-runs on retry so a crash after the revenue row cannot strand a customer.
+- **Amount/currency consistency** is checked before PAID; mismatch ⇒ logged +
+  audited, order stays unpaid (collected money is still recorded).
+- **Tests:** `tests/stripe-webhook.test.ts` signs live-mode fixtures with a
+  per-test secret and tags enqueued tasks via the `deliveryKeyPrefix` option
+  (`QTEST-…`, which the worker excludes). Test tags MUST start with `QTEST-`.
+- **Owner action:** register `…/webhooks/stripe` in Stripe and set
+  `STRIPE_WEBHOOK_SECRET` in Railway.

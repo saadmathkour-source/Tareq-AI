@@ -17,7 +17,7 @@ import type { DemandScan } from '../src/lib/integrations/publicdata.ts';
  * provider call. Stripe classification is tested as a pure function.
  */
 
-const MARK = `QTEST16-${Date.now().toString(36)}`;
+const MARK = `QTEST-16-${Date.now().toString(36)}`;
 const orderIds: string[] = [];
 
 test.after(async () => {
@@ -170,7 +170,7 @@ test('Stripe classification: live checkout with an order ref is revenue', () => 
   assert.equal(d.action, 'revenue');
   if (d.action === 'revenue') {
     assert.equal(d.amountUsd, 149);
-    assert.equal(d.dealId, 'order-123');
+    assert.equal(d.orderRef, 'order-123');
   }
 });
 
