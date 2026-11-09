@@ -1,4 +1,4 @@
-# Keep the Docker build context small and deterministic.
+# Keep the Docker build context small and deterministic, and never ship secrets.
 .git
 node_modules
 tareq/node_modules
@@ -8,3 +8,6 @@ tareq/dist
 .env
 .env.*
 !.env.example
+tareq/.env
+tareq/.env.*
+!tareq/.env.example

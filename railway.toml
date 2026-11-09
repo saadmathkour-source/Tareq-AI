@@ -8,6 +8,10 @@
 # If Railway's "Root Directory" for this service is set to `tareq/` instead of
 # the repository root, Railway will use `tareq/railway.toml` (Nixpacks) instead
 # of this file; both are configured to build and run TAREQ, never VoiceProxy.
+#
+# `tareq/Dockerfile` is written to build under EITHER layout (context = repo root
+# or context = `tareq/`), so the DOCKERFILE path below is safe in both cases and
+# no longer fails with "COPY tareq/: not found".
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "tareq/Dockerfile"
