@@ -165,6 +165,13 @@ route('GET', '/health', false, async (req, res) => {
   json(res, report.ok ? 200 : 503, report);
 });
 
+// Alias so platform health probes that expect `/api/health` also succeed.
+route('GET', '/api/health', false, async (req, res) => {
+  const deep = new URL(req.url ?? '/', 'http://x').searchParams.get('deep') === '1';
+  const report = await health({ deep });
+  json(res, report.ok ? 200 : 503, report);
+});
+
 route('POST', '/auth/login', false, async (_req, res, _o, body) => {
   const email = String(body['email'] ?? '');
   const password = String(body['password'] ?? '');

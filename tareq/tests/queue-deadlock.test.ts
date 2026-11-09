@@ -21,7 +21,10 @@ const ids: string[] = [];
 
 /** Claim only this test's own rows, so a live worker or other rows can't interfere. */
 function claimOwn(workerId: string) {
-  return claimNext(workerId, 5 * 60_000, { includeIdempotencyPrefix: MARK });
+  return claimNext(workerId, 5 * 60_000, {
+    excludeIdempotencyPrefix: null,
+    includeIdempotencyPrefix: MARK,
+  });
 }
 
 async function make(kind: string, opts: Parameters<typeof enqueue>[0] extends infer T ? Omit<T, 'kind'> : never): Promise<string> {

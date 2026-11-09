@@ -21,6 +21,8 @@ export interface HealthReport {
   queue?: Record<string, number>;
   budget?: { capUsd: number; spentUsd: number; remainingUsd: number };
   capabilities?: Record<string, number>;
+  /** Deployment identity — lets a caller confirm which build is live. */
+  build?: { commit: string; workerConcurrency: number };
   timestamp: string;
 }
 
@@ -49,6 +51,10 @@ export async function health(opts: { deep?: boolean } = {}): Promise<HealthRepor
     version: '0.1.0',
     uptimeMs: Date.now() - startedAt,
     checks,
+    build: {
+      commit: process.env.RAILWAY_GIT_COMMIT_SHA ?? process.env.GIT_COMMIT ?? 'unknown',
+      workerConcurrency: Number(process.env.TAREQ_WORKER_CONCURRENCY ?? 1),
+    },
     timestamp: new Date().toISOString(),
   };
 
