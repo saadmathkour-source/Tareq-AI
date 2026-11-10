@@ -926,7 +926,10 @@ const server = createServer(async (req, res) => {
         return sendHtml(
           res,
           200,
-          contactHtml({ products: products.map((p) => ({ slug: p.slug, name: p.name })), notice: 'Thank you — your question has been received. We will reply to the email you gave us.' }),
+          contactHtml({
+            products: products.map((p) => ({ slug: p.slug, name: p.name })),
+            notice: 'Thank you — your question has been recorded. An email answer is sent only when owner permission and a working email provider are enabled; otherwise the inquiry remains available for owner follow-up.',
+          }),
         );
       } catch (err) {
         const products = await listProducts(true);
