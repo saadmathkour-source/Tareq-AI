@@ -17,7 +17,7 @@ import { assertContentPublishingAllowed, assertNotStopped } from '../security/co
  *
  * Honesty rules, enforced in code:
  *  - an article is only PUBLISHED when it has a title, a summary and at least
- *    one traceable public source URL;
+ *    one titled public source with a valid HTTPS URL;
  *  - the model drafts prose from measured signals only and is told not to invent
  *    statistics, customers or claims; if it is unavailable the article still
  *    ships with the deterministic, source-cited content;
@@ -148,7 +148,7 @@ export async function draftArticle(input: DraftArticleInput): Promise<{ id: stri
 
 /**
  * Publish a drafted article. Enforces the emergency stop and the owner's
- * content-publishing permission, runs a QA gate (title, summary, ≥1 source) and
+ * content-publishing permission, runs a QA gate (title, summary, valid HTTPS source) and
  * audits the transition. Idempotent on re-publish.
  */
 export async function publishArticle(slug: string, actorId: string): Promise<{ slug: string; status: string }> {
@@ -159,8 +159,19 @@ export async function publishArticle(slug: string, actorId: string): Promise<{ s
   if (!article) throw new ValidationError('article not found');
 
   const sources = Array.isArray(article.sources) ? (article.sources as unknown[]) : [];
-  if (!article.title.trim() || !article.summary.trim() || sources.length === 0) {
-    throw new ValidationError('article fails QA: it needs a title, a summary and at least one traceable source');
+  const hasTraceableSources = sources.length > 0 && sources.every((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return false;
+    const source = item as Record<string, unknown>;
+    if (typeof source.title !== 'string' || !source.title.trim() || typeof source.url !== 'string') return false;
+    try {
+      const url = new URL(source.url);
+      return url.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  });
+  if (!article.title.trim() || !article.summary.trim() || !hasTraceableSources) {
+    throw new ValidationError('article fails QA: it needs a title, a summary and at least one titled HTTPS source');
   }
 
   const updated = await prisma.article.update({

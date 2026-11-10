@@ -72,6 +72,25 @@ test('an article with no traceable source fails QA and cannot be published', asy
   });
 });
 
+test('an article with a non-HTTPS source fails QA and cannot be published', async () => {
+  await withContent(true, async () => {
+    const art = await prisma.article.create({
+      data: {
+        slug: `t-badsrc-${Date.now()}`,
+        title: 'T',
+        summary: 'S',
+        bodyHtml: '<p>x</p>',
+        sources: [{ title: 'Untrusted link', url: 'javascript:alert(1)' }] as never,
+      },
+    });
+    try {
+      await assert.rejects(() => publishArticle(art.slug, 'test'), /at least one titled HTTPS source/);
+    } finally {
+      await prisma.article.delete({ where: { id: art.id } });
+    }
+  });
+});
+
 test('an inquiry requires a valid email and a non-trivial message', async () => {
   await assert.rejects(() => createInquiry({ email: 'not-an-email', message: 'hello there' }), /valid email/);
   await assert.rejects(() => createInquiry({ email: 'a@b.com', message: 'x' }), /short question/);
