@@ -1,21 +1,25 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { aiClient, aiModel, type AiProvider } from '@/lib/ai/provider';
+import { authenticatedUser } from '@/lib/supabase/auth';
 
 export const runtime = 'nodejs';
 
 const messageSchema = z.object({
-  role: z.enum(['system', 'user', 'assistant']),
-  content: z.string().min(1),
+  role: z.enum(['user', 'assistant']),
+  content: z.string().min(1).max(8000),
 });
 
 const bodySchema = z.object({
-  messages: z.array(messageSchema).min(1),
+  messages: z.array(messageSchema).min(1).max(30),
   provider: z.enum(['openai', 'deepseek']).optional(),
   temperature: z.number().min(0).max(2).optional(),
 });
 
 export async function POST(request: Request) {
+  const user = await authenticatedUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   let body: unknown;
   try {
     body = await request.json();
@@ -48,10 +52,7 @@ export async function POST(request: Request) {
       message: choice?.message ?? null,
       usage: completion.usage ?? null,
     });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'AI request failed' },
-      { status: 502 },
-    );
+  } catch {
+    return NextResponse.json({ error: 'AI service unavailable' }, { status: 502 });
   }
 }

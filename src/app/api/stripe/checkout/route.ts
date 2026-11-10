@@ -1,59 +1,35 @@
 import { NextResponse } from 'next/server';
-import { z } from 'zod';
 import { stripe } from '@/lib/stripe';
 import { serverEnv } from '@/lib/env';
+import { authenticatedUser } from '@/lib/supabase/auth';
 
 export const runtime = 'nodejs';
 
-const bodySchema = z.object({
-  priceId: z.string().min(1).optional(),
-  email: z.string().email().optional(),
-  successPath: z.string().default('/?checkout=success'),
-  cancelPath: z.string().default('/?checkout=cancelled'),
-});
+export async function POST() {
+  const user = await authenticatedUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  if (!user.email) return NextResponse.json({ error: 'Verified email required' }, { status: 400 });
 
-export async function POST(request: Request) {
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    body = {};
+  // Never accept arbitrary Stripe price IDs, account emails or redirect URLs
+  // from a client. The subscription belongs to the authenticated user.
+  const { STRIPE_PRO_PRICE_ID, APP_URL } = serverEnv();
+  if (!STRIPE_PRO_PRICE_ID) {
+    return NextResponse.json({ error: 'No subscription price configured' }, { status: 503 });
   }
-
-  const parsed = bodySchema.safeParse(body ?? {});
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'Invalid request', issues: parsed.error.issues },
-      { status: 400 },
-    );
-  }
-
-  const { email, successPath, cancelPath } = parsed.data;
-  const priceId = parsed.data.priceId ?? serverEnv().STRIPE_PRO_PRICE_ID;
-
-  if (!priceId) {
-    return NextResponse.json(
-      { error: 'No price configured. Pass priceId or set STRIPE_PRO_PRICE_ID.' },
-      { status: 400 },
-    );
-  }
-
-  const appUrl = serverEnv().APP_URL;
+  const baseUrl = APP_URL.replace(/\/+$/, '');
 
   try {
     const session = await stripe().checkout.sessions.create({
       mode: 'subscription',
-      line_items: [{ price: priceId, quantity: 1 }],
-      customer_email: email,
-      success_url: `${appUrl}${successPath}`,
-      cancel_url: `${appUrl}${cancelPath}`,
+      line_items: [{ price: STRIPE_PRO_PRICE_ID, quantity: 1 }],
+      customer_email: user.email,
+      client_reference_id: user.id,
+      metadata: { userId: user.id },
+      success_url: `${baseUrl}/?checkout=success`,
+      cancel_url: `${baseUrl}/?checkout=cancelled`,
     });
-
     return NextResponse.json({ id: session.id, url: session.url });
-  } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Checkout failed' },
-      { status: 502 },
-    );
+  } catch {
+    return NextResponse.json({ error: 'Checkout unavailable' }, { status: 502 });
   }
 }

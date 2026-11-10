@@ -302,8 +302,6 @@ T.ar = {
 };
 let lang = localStorage.getItem('tareq.lang') || 'en';
 let token = sessionStorage.getItem('tareq.token') || '';
-// Server sets data-auth-bypass when TAREQ_AUTH_BYPASS=1 (temporary lockout recovery).
-const AUTH_BYPASS = document.body.dataset.authBypass === '1';
 let CAPS = [];
 let capQuery = '';
 let capFilter = 'ALL';
@@ -751,11 +749,7 @@ document.getElementById('saveControlsBtn').onclick = async () => {
 
 // --- boot ---
 applyLang();
-if (AUTH_BYPASS) {
-  document.getElementById('login').classList.add('hidden');
-  document.getElementById('app').classList.remove('hidden');
-  refresh().catch(() => {});
-} else if (token) {
+if (token) {
   document.getElementById('login').classList.add('hidden');
   document.getElementById('app').classList.remove('hidden');
   document.getElementById('logoutBtn').classList.remove('hidden');

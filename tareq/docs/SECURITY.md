@@ -15,7 +15,8 @@
 - Passwords are stored as salted scrypt hashes (`src/lib/security/owner-auth.ts`).
 - Sessions are opaque tokens stored hashed in the `sessions` table with an
   expiry; `POST /auth/logout` revokes one, `POST /auth/revoke-all` revokes all.
-- Every route except `/health` and `/auth/login` requires a valid session.
+- Owner-control API routes require a valid session; public health and storefront routes are the documented exceptions.
+- **No authentication bypass exists.** The former `TAREQ_AUTH_BYPASS` recovery mechanism has been removed. Provision or recover the single owner account through a trusted, private maintenance environment; never unlock privileged HTTP routes.
 
 ## Permission engine (`src/lib/security/permissions.ts`)
 
