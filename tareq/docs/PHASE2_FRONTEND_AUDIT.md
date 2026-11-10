@@ -49,7 +49,7 @@ At minimum, the authenticated API paths with no matching dashboard fetch/control
 
 **Smallest repair implemented on PR #12:** dashboard now loads `/content` and `/inquiries`; it lists sourced articles for review and confirmation before publish, and provides an owner-only inquiry view with escaped question/answer text and a confirmed action for new inquiries. Server-side permission, source QA, emergency-stop and conditional email controls remain authoritative. The public contact response now accurately distinguishes stored inquiries from delivered email and discloses IP use for abuse prevention. None of this is deployed.
 
-**Remaining acquisition blocker:** email delivery is not verified, and a failed email after an inquiry is marked `ANSWERED` cannot yet be retried. This is documented rather than presented as a working retry path.
+**Remaining acquisition blocker:** email delivery is not verified. The latest `main` source includes a delivery lease/retry path, but its `reply_claimed_at` schema field must be applied and deployed before the path can be treated as live. Do not infer delivery without `replySentAt` evidence.
 
 ## UI audit conclusion
 
