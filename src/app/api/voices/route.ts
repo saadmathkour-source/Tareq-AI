@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
+import { authenticatedUser } from '@/lib/supabase/auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 const createSchema = z.object({
-  userId: z.string().min(1),
+  // Backward-compatible input only; never trust this to identify the owner.
+  userId: z.string().min(1).optional(),
   name: z.string().min(1).max(120),
   language: z.string().min(2).max(10).default('en'),
   provider: z.string().min(1).default('openai'),
@@ -14,10 +16,12 @@ const createSchema = z.object({
   sampleUrl: z.string().url().optional(),
 });
 
-export async function GET(request: Request) {
-  const userId = new URL(request.url).searchParams.get('userId');
+export async function GET() {
+  const user = await authenticatedUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const voices = await prisma.voiceProfile.findMany({
-    where: userId ? { userId } : undefined,
+    where: { userId: user.id },
     orderBy: { createdAt: 'desc' },
     take: 100,
   });
@@ -25,6 +29,9 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
+  const user = await authenticatedUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   let body: unknown;
   try {
     body = await request.json();
@@ -39,12 +46,17 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+  if (parsed.data.userId && parsed.data.userId !== user.id) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+  }
 
   try {
-    const voice = await prisma.voiceProfile.create({ data: parsed.data });
+    const voice = await prisma.voiceProfile.create({
+      data: { ...parsed.data, userId: user.id },
+    });
     return NextResponse.json({ voice }, { status: 201 });
   } catch (error) {
-    // P2003: the referenced user does not exist yet (mirrored from Supabase Auth).
+    // P2003: the authenticated user has not been mirrored into the app table.
     if (
       typeof error === 'object' &&
       error !== null &&
@@ -52,7 +64,7 @@ export async function POST(request: Request) {
       (error as { code?: string }).code === 'P2003'
     ) {
       return NextResponse.json(
-        { error: `No user with id "${parsed.data.userId}". Sync the user from Supabase Auth first.` },
+        { error: 'User record not synchronized. Please contact support.' },
         { status: 409 },
       );
     }
