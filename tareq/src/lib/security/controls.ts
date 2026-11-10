@@ -34,6 +34,12 @@ export interface Controls {
   outreachAllowed: boolean;
   marketingAllowed: boolean;
   financialOpsAllowed: boolean;
+  /**
+   * Permission to publish original organic content (articles) to TAREQ's own
+   * website. Separate from `publishingAllowed` (which gates selling product
+   * pages) so the owner can grant one without the other.
+   */
+  contentPublishingAllowed: boolean;
   /** Emergency stop. True halts all acting work immediately. */
   emergencyStop: boolean;
 }
@@ -49,6 +55,7 @@ export const DEFAULT_CONTROLS: Controls = {
   outreachAllowed: false,
   marketingAllowed: false,
   financialOpsAllowed: false,
+  contentPublishingAllowed: false,
   emergencyStop: false,
 };
 
@@ -72,6 +79,7 @@ export const IMPLEMENTED_CONTROLS: Array<keyof Controls> = [
   'modelCallCapPerDay',
   'publishingAllowed',
   'outreachAllowed',
+  'contentPublishingAllowed',
   'emergencyStop',
 ];
 
@@ -259,6 +267,12 @@ export async function assertDiscountAllowed(pct: number): Promise<void> {
 export async function assertPublishingAllowed(): Promise<void> {
   const c = await getControls();
   if (!c.publishingAllowed) throw new ForbiddenError('publishing is not permitted by the owner controls');
+}
+
+/** Gate for publishing original organic content (articles) to TAREQ's own site. */
+export async function assertContentPublishingAllowed(): Promise<void> {
+  const c = await getControls();
+  if (!c.contentPublishingAllowed) throw new ForbiddenError('content publishing is not permitted by the owner controls');
 }
 
 export async function assertOutreachAllowed(): Promise<void> {

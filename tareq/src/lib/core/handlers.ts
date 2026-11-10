@@ -23,6 +23,8 @@ import { runMission } from '../commercial/mission.ts';
 import { researchDemand } from '../tools/research.ts';
 import { seedProducts } from '../commercial/products.ts';
 import { generateLanding, generateAllLandings } from '../commercial/landing.ts';
+import { draftArticle } from '../commercial/publishing.ts';
+import { answerInquiry } from '../commercial/inquiries.ts';
 import { deliverOrder } from '../commercial/delivery.ts';
 import { financialReport } from '../finance/report.ts';
 import { runWatchdog } from './supervisor.ts';
@@ -471,5 +473,31 @@ function registerAll(): void {
     const models = (task.payload['models'] as ModelProfile[]) ?? [];
     const allocation = allocateResources({ kind, requiredQuality, tokens }, models);
     return { ...allocation };
+  });
+
+  // --- organic content: draft one article from real, discovered demand -------
+  // Drafting is cheap and safe (no publishing). It picks the most recent open
+  // opportunity as the topic so content is tied to actual research, not invented.
+  registerHandler('content.draft_article', async (task) => {
+    let topic = String(task.payload['topic'] ?? '').trim();
+    let productSlug: string | null = (task.payload['productSlug'] as string | undefined) ?? null;
+    if (!topic) {
+      const opp = await prisma.opportunity.findFirst({ where: { killedAt: null }, orderBy: { createdAt: 'desc' } });
+      if (!opp) return { skipped: 'no open opportunity to write about' };
+      topic = opp.title;
+      if (!productSlug) {
+        const published = await prisma.product.findFirst({ where: { status: 'PUBLISHED' }, orderBy: { updatedAt: 'desc' } });
+        productSlug = published?.slug ?? null;
+      }
+    }
+    const { id, slug } = await draftArticle({ topic, productSlug });
+    return { articleId: id, slug, topic };
+  });
+
+  // --- inbound: answer a customer's own question from verified product data --
+  registerHandler('inquiry.answer', async (task) => {
+    const id = String(task.payload['inquiryId'] ?? '');
+    if (!id) return { skipped: 'no inquiryId' };
+    return await answerInquiry(id);
   });
 }

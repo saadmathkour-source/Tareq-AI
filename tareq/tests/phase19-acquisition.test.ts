@@ -1,0 +1,119 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { prisma } from '../src/lib/core/db.ts';
+import { publishArticle, getPublishedArticle } from '../src/lib/commercial/publishing.ts';
+import { createInquiry, answerInquiry } from '../src/lib/commercial/inquiries.ts';
+import { getControls, setControls } from '../src/lib/security/controls.ts';
+import { registerAllHandlers } from '../src/lib/core/handlers.ts';
+import { registeredKinds } from '../src/lib/core/orchestrator.ts';
+
+/**
+ * Phase 19 — organic publishing and inbound handling.
+ *
+ * Proves the two new acquisition legs are real and correctly gated:
+ *  - an article cannot be published without the owner's content permission, and
+ *    cannot pass QA without a traceable source;
+ *  - an inbound inquiry is answered from verified product data (no invention)
+ *    and is NOT emailed unless the owner has granted email permission.
+ */
+
+const SOURCE = [{ title: 'Hacker News discussion', url: 'https://news.ycombinator.com/item?id=1' }];
+
+async function withContent(allow: boolean, fn: () => Promise<void>): Promise<void> {
+  const before = await getControls();
+  await setControls({ contentPublishingAllowed: allow }, 'test');
+  try {
+    await fn();
+  } finally {
+    await setControls({ contentPublishingAllowed: before.contentPublishingAllowed }, 'test');
+  }
+}
+
+test('an article is refused while content publishing is off', async () => {
+  await withContent(false, async () => {
+    const art = await prisma.article.create({
+      data: { slug: `t-off-${Date.now()}`, title: 'T', summary: 'S', bodyHtml: '<p>x</p>', sources: SOURCE as never },
+    });
+    try {
+      await assert.rejects(() => publishArticle(art.slug, 'test'), /content publishing is not permitted/);
+    } finally {
+      await prisma.article.delete({ where: { id: art.id } });
+    }
+  });
+});
+
+test('an article with a traceable source publishes when permitted and becomes public', async () => {
+  await withContent(true, async () => {
+    const slug = `t-on-${Date.now()}`;
+    const art = await prisma.article.create({
+      data: { slug, title: 'Real title', summary: 'Real summary', bodyHtml: '<p>x</p>', sources: SOURCE as never },
+    });
+    try {
+      const res = await publishArticle(slug, 'test');
+      assert.equal(res.status, 'PUBLISHED');
+      const pub = await getPublishedArticle(slug);
+      assert.ok(pub, 'a published article is retrievable for the public page');
+    } finally {
+      await prisma.article.delete({ where: { id: art.id } });
+    }
+  });
+});
+
+test('an article with no traceable source fails QA and cannot be published', async () => {
+  await withContent(true, async () => {
+    const art = await prisma.article.create({
+      data: { slug: `t-nosrc-${Date.now()}`, title: 'T', summary: 'S', bodyHtml: '<p>x</p>', sources: [] as never },
+    });
+    try {
+      await assert.rejects(() => publishArticle(art.slug, 'test'), /fails QA/);
+    } finally {
+      await prisma.article.delete({ where: { id: art.id } });
+    }
+  });
+});
+
+test('an inquiry requires a valid email and a non-trivial message', async () => {
+  await assert.rejects(() => createInquiry({ email: 'not-an-email', message: 'hello there' }), /valid email/);
+  await assert.rejects(() => createInquiry({ email: 'a@b.com', message: 'x' }), /short question/);
+});
+
+test('an inbound inquiry is answered from verified product data and not emailed while outreach is off', async () => {
+  const before = await getControls();
+  await setControls({ outreachAllowed: false }, 'test');
+  const product = await prisma.product.create({
+    data: {
+      slug: `t-prod-${Date.now()}`,
+      name: 'Test Opportunity Report',
+      tagline: 'A fixed-scope research report',
+      problem: 'unclear demand',
+      solution: 'source-cited research',
+      priceUsd: 149,
+      status: 'PUBLISHED',
+      deliverables: ['A source-cited report'] as never,
+      requirements: ['Your target niche'] as never,
+      limitations: ['Not financial advice'] as never,
+    },
+  });
+  const { id } = await createInquiry({ email: 'buyer@example.com', message: 'What exactly do I receive?', productSlug: product.slug });
+  try {
+    const res = await answerInquiry(id);
+    assert.equal(res.answered, true);
+    assert.equal(res.sent, false, 'no email may be sent while outreach is off');
+    const row = await prisma.inquiry.findUnique({ where: { id } });
+    assert.ok(row?.answer, 'an answer is stored');
+    assert.ok(row!.answer!.includes(product.name), 'the answer quotes the real product name');
+    assert.ok(row!.answer!.includes('A source-cited report'), 'the answer uses the product\u2019s verified deliverables');
+    assert.equal(row?.replySentAt, null, 'no reply is recorded as sent');
+  } finally {
+    await prisma.inquiry.delete({ where: { id } });
+    await prisma.product.delete({ where: { id: product.id } });
+    await setControls({ outreachAllowed: before.outreachAllowed }, 'test');
+  }
+});
+
+test('the new acquisition handlers are registered', () => {
+  registerAllHandlers();
+  const kinds = new Set(registeredKinds());
+  assert.ok(kinds.has('content.draft_article'), 'content.draft_article handler must exist');
+  assert.ok(kinds.has('inquiry.answer'), 'inquiry.answer handler must exist');
+});

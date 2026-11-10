@@ -31,6 +31,9 @@ export const DEFAULT_SCHEDULES: ScheduleSeed[] = [
   { name: 'supervisor.watchdog', cron: '*/10 * * * *', taskKind: 'supervisor.watchdog', payload: {} },
   // Autonomous optimization: once a day, compare realised product margins.
   { name: 'commercial.optimize', cron: '15 6 * * *', taskKind: 'commercial.optimize', payload: {} },
+  // Organic content: draft one evidence-based article twice a week (Mon/Thu).
+  // Drafting only — publishing stays gated by the owner's content permission.
+  { name: 'content.weekly', cron: '0 9 * * 1,4', taskKind: 'content.draft_article', payload: {} },
 ];
 
 export async function seedSchedules(seeds: ScheduleSeed[] = DEFAULT_SCHEDULES): Promise<number> {

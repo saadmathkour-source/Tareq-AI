@@ -266,7 +266,7 @@ T.en = {
   'runWatchdog':'Run watchdog','save':'Save controls','lbl.daily':'Daily $','lbl.monthly':'Monthly $','lbl.perTask':'Per-task $',
   'lbl.adcap':'Ad cap $','lbl.discount':'Max discount %','lbl.callsToday':'Model calls today','lbl.util':'Budget used',
   'lbl.openFindings':'Open findings','lbl.autoResolved':'Auto-resolved','lbl.readiness':'Readiness (verified)',
-  'toggle.publishingAllowed':'Publishing','toggle.outreachAllowed':'Outreach','toggle.marketingAllowed':'Marketing',
+  'toggle.publishingAllowed':'Publishing','toggle.contentPublishingAllowed':'Content','toggle.outreachAllowed':'Outreach','toggle.marketingAllowed':'Marketing',
   'toggle.financialOpsAllowed':'Financial ops','toggle.emergencyStop':'Emergency stop','verified':'verified',
   'controlsSaved':'Saved.','finding':'Finding','severity':'Severity','actionTaken':'Action taken'
 };
@@ -296,7 +296,7 @@ T.ar = {
   'runWatchdog':'تشغيل المراقب','save':'حفظ الضوابط','lbl.daily':'اليومي $','lbl.monthly':'الشهري $','lbl.perTask':'لكل مهمة $',
   'lbl.adcap':'سقف الإعلانات $','lbl.discount':'أقصى خصم %','lbl.callsToday':'استدعاءات النموذج اليوم','lbl.util':'الميزانية المستخدمة',
   'lbl.openFindings':'ملاحظات مفتوحة','lbl.autoResolved':'تم حلها تلقائيًا','lbl.readiness':'الجاهزية (موثّقة)',
-  'toggle.publishingAllowed':'النشر','toggle.outreachAllowed':'التواصل','toggle.marketingAllowed':'التسويق',
+  'toggle.publishingAllowed':'النشر','toggle.contentPublishingAllowed':'المحتوى','toggle.outreachAllowed':'التواصل','toggle.marketingAllowed':'التسويق',
   'toggle.financialOpsAllowed':'العمليات المالية','toggle.emergencyStop':'إيقاف طارئ','verified':'موثّق',
   'controlsSaved':'تم الحفظ.','finding':'ملاحظة','severity':'الخطورة','actionTaken':'الإجراء المتخذ'
 };
@@ -582,7 +582,7 @@ async function refresh() {
     card(t('lbl.util'), utilPct.toFixed(1) + '%', money(cu.monthUsd) + ' / ' + money(ctlv.monthlyBudgetUsd)),
     card(t('toggle.emergencyStop'), ctlv.emergencyStop ? 'ON' : 'off', ctlv.emergencyStop ? 'acting work halted' : ''),
   ].join('');
-  const toggles = [['publishingAllowed'], ['outreachAllowed'], ['marketingAllowed'], ['financialOpsAllowed'], ['emergencyStop']];
+  const toggles = [['publishingAllowed'], ['contentPublishingAllowed'], ['outreachAllowed'], ['marketingAllowed'], ['financialOpsAllowed'], ['emergencyStop']];
   // Controls with no action path yet are shown, but disabled and labelled, so the
   // UI can never imply an enforcement that does not exist.
   const notImpl = (ctl.status && ctl.status.notImplemented) || [];

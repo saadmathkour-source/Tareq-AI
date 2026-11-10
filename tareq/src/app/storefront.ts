@@ -23,12 +23,20 @@ h1{font-size:1.9rem;line-height:1.2}h2{font-size:1.15rem;margin-top:1.6em}a{colo
 .buyform input{padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:1rem;font-family:inherit}
 .buyform .btn{margin-top:8px;justify-self:start}
 pre.doc{background:#0f172a;color:#e2e8f0;padding:16px;border-radius:10px;overflow:auto;font-size:12.5px;line-height:1.5}
+nav a{margin-left:12px;text-decoration:none}
+.prose p{margin:0 0 1em}
+.prose{white-space:pre-wrap}
+form.contact{display:grid;gap:8px;max-width:520px;margin:18px 0}
+form.contact label{font-weight:600;font-size:.95rem}
+form.contact input,form.contact textarea{padding:11px 12px;border:1px solid var(--line);border-radius:9px;font-size:1rem;font-family:inherit}
+form.contact textarea{min-height:130px}
+.articlelist .card h2{margin-top:0}
 footer{color:var(--muted);font-size:.85rem;max-width:880px;margin:0 auto 40px;padding:0 20px}`;
 
 function shell(title: string, body: string): string {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title><style>${STYLE}</style></head><body>
-<header><div class="wrap"><span class="brand">TAREQ AI</span><a href="/shop">Shop</a></div></header>
+<header><div class="wrap"><span class="brand">TAREQ AI</span><nav><a href="/insights">Insights</a> · <a href="/shop">Shop</a> · <a href="/contact">Contact</a></nav></div></header>
 <main>${body}</main>
 <footer><p>Automated business research services. No results, certifications or partnerships are claimed.</p>
 <p><a href="/legal/terms">Terms</a> · <a href="/legal/privacy">Privacy</a> · <a href="/legal/refunds">Refunds</a> · <a href="mailto:support@tareq.ai">support@tareq.ai</a></p></footer>
@@ -190,4 +198,70 @@ export function legalHtml(page: string): string | null {
   const entry = LEGAL[page];
   if (!entry) return null;
   return shell(`${entry.title} — TAREQ AI`, entry.body);
+}
+
+// --- organic publishing & inbound (Phase 19) -------------------------------
+
+export interface ArticleCard {
+  slug: string;
+  title: string;
+  summary: string;
+  publishedAt: Date | null;
+}
+
+/** Index of published articles — TAREQ's own, owner-controlled channel. */
+export function insightsHtml(articles: ArticleCard[]): string {
+  const cards = articles.length
+    ? `<div class="articlelist">${articles
+        .map(
+          (a) => `<div class="card"><h2><a href="/insights/${esc(a.slug)}">${esc(a.title)}</a></h2>
+<p class="muted">${esc(a.summary)}</p></div>`,
+        )
+        .join('')}</div>`
+    : '<p class="muted">No articles are published yet.</p>';
+  return shell(
+    'Insights — TAREQ AI',
+    `<h1>Market insights</h1>
+<p class="muted">Short, source-cited guides on judging demand honestly. Every figure is tied to a public source.</p>
+${cards}
+<p><a href="/shop">See our research services</a> · <a href="/contact">Ask a question</a></p>`,
+  );
+}
+
+/** A single published article. Body is authored HTML with only escaped fields. */
+export function articleHtml(a: { title: string; summary: string; bodyHtml: string; publishedAt: Date | null }): string {
+  const date = a.publishedAt ? a.publishedAt.toISOString().slice(0, 10) : '';
+  return shell(
+    `${a.title} — TAREQ AI`,
+    `<meta name="description" content="${esc(a.summary)}">
+<article>${a.bodyHtml}</article>
+${date ? `<p class="muted">Published ${esc(date)}</p>` : ''}
+<p><a href="/insights">All insights</a> · <a href="/contact">Ask a question</a></p>`,
+  );
+}
+
+/** Public contact form. Submitting is the visitor's own request — not outreach. */
+export function contactHtml(opts: { products?: Array<{ slug: string; name: string }>; notice?: string; error?: string } = {}): string {
+  const products = opts.products ?? [];
+  const options = products.map((p) => `<option value="${esc(p.slug)}">${esc(p.name)}</option>`).join('');
+  const notice = opts.notice ? `<p class="muted">${esc(opts.notice)}</p>` : '';
+  const error = opts.error ? `<p style="color:#b91c1c">${esc(opts.error)}</p>` : '';
+  return shell(
+    'Contact — TAREQ AI',
+    `<h1>Ask a question</h1>
+<p>Tell us what you need. We answer from verified product information, not sales talk. A member of the team can follow up by email.</p>
+${error}${notice}
+<form method="POST" action="/contact" class="contact">
+  <label for="email">Your email</label>
+  <input id="email" name="email" type="email" required maxlength="254" placeholder="you@company.com" autocomplete="email">
+  <label for="name">Your name (optional)</label>
+  <input id="name" name="name" type="text" maxlength="200" autocomplete="name">
+  <label for="productSlug">Which service is this about? (optional)</label>
+  <select id="productSlug" name="productSlug"><option value="">General question</option>${options}</select>
+  <label for="message">Your question</label>
+  <textarea id="message" name="message" required maxlength="4000" placeholder="e.g. What exactly do I receive, and how long does it take?"></textarea>
+  <button class="btn" type="submit">Send question</button>
+</form>
+<p class="muted">We use your email only to reply to this question. You can ask us to delete it at any time.</p>`,
+  );
 }

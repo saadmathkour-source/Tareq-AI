@@ -32,6 +32,8 @@ import { status as hubspotStatus } from '../lib/integrations/hubspot.ts';
 import { status as stripeStatus, handleWebhook, createTestPaymentLink } from '../lib/integrations/stripe.ts';
 import { listProducts, getPublishedProduct, seedProducts, publishProduct } from '../lib/commercial/products.ts';
 import { generateLanding } from '../lib/commercial/landing.ts';
+import { draftArticle, publishArticle, listPublishedArticles, getPublishedArticle, listAllArticles } from '../lib/commercial/publishing.ts';
+import { createInquiry, answerInquiry, listInquiries } from '../lib/commercial/inquiries.ts';
 import { createOrder, attachCheckout, listOrders, orderStats } from '../lib/commercial/orders.ts';
 import { getArtifact, redeemDownloadToken } from '../lib/commercial/delivery.ts';
 import { createPublicCheckout, getPublicOrderStatus } from '../lib/commercial/checkout.ts';
@@ -47,7 +49,7 @@ import { bootstrapWorker } from '../lib/core/worker-boot.ts';
 import { startScheduler } from '../lib/queue/scheduler.ts';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { shopHtml, thanksHtml, legalHtml, notFoundHtml, buyHtml, downloadHtml } from './storefront.ts';
+import { shopHtml, thanksHtml, legalHtml, notFoundHtml, buyHtml, downloadHtml, insightsHtml, articleHtml, contactHtml } from './storefront.ts';
 
 const PORT = Number(process.env.PORT ?? 3300);
 
@@ -577,6 +579,8 @@ route('GET', '/readiness', true, async (_req, res) => {
   const confirmed = await prisma.ledgerEntry.findMany({ where: { kind: 'REVENUE_CONFIRMED', verifiedAt: { not: null } }, select: { externalId: true, amountUsd: true } });
   const liveRevenue = confirmed.filter((r) => !String(r.externalId ?? '').includes('_test_'));
   const liveRevenueUsd = liveRevenue.reduce((a, r) => a + Number(r.amountUsd), 0);
+  const publishedArticles = await prisma.article.count({ where: { status: 'PUBLISHED' } });
+  const answeredInquiries = await prisma.inquiry.count({ where: { status: { in: ['ANSWERED', 'CLOSED'] } } });
   const report = await financialReport('all');
 
   const items = [
@@ -584,12 +588,13 @@ route('GET', '/readiness', true, async (_req, res) => {
     { n: 2, name: 'build a real sellable offer', verified: publishedProducts > 0, evidence: `${publishedProducts} published product(s)` },
     { n: 3, name: 'publish the product', verified: publishedProducts > 0, evidence: `${publishedProducts} published product(s)` },
     { n: 4, name: 'find a suitable prospect', verified: leads > 0, evidence: `${leads} lead(s)` },
-    { n: 5, name: 'run a permitted marketing action', verified: approvedOutreach > 0, evidence: `${approvedOutreach} approved outreach approval(s)`, blockedBy: approvedOutreach > 0 ? undefined : 'outreach.send needs an owner approval and an email connector' },
-    { n: 6, name: 'record a real response when it happens', verified: false, evidence: 'no response recorded yet', blockedBy: 'requires a live outreach channel' },
-    { n: 7, name: 'create a purchase order', verified: orders > 0, evidence: `${orders} order(s)` },
-    { n: 8, name: 'receive a real LIVE payment', verified: liveRevenue.length > 0, evidence: `${liveRevenue.length} confirmed live payment(s), $${liveRevenueUsd.toFixed(2)}`, blockedBy: liveRevenue.length > 0 ? undefined : 'no live payment received yet' },
-    { n: 9, name: 'fulfil and deliver the order', verified: delivered > 0, evidence: `${delivered} delivered order(s)`, blockedBy: delivered > 0 ? undefined : 'no order delivered yet' },
-    { n: 10, name: 'compute profit after costs', verified: liveRevenue.length > 0, evidence: `net profit $${report.summary.netProfitUsd.toFixed(2)} over $${report.summary.grossRevenueUsd.toFixed(2)} collected`, blockedBy: liveRevenue.length > 0 ? undefined : 'no collected revenue to compute profit on' },
+    { n: 5, name: 'publish authorized organic content', verified: publishedArticles > 0, evidence: `${publishedArticles} published article(s)`, blockedBy: publishedArticles > 0 ? undefined : 'needs the owner to grant content publishing' },
+    { n: 6, name: 'run a permitted marketing action', verified: approvedOutreach > 0, evidence: `${approvedOutreach} approved outreach approval(s)`, blockedBy: approvedOutreach > 0 ? undefined : 'outreach.send needs an owner approval and an email connector' },
+    { n: 7, name: 'record a real response when it happens', verified: answeredInquiries > 0, evidence: `${answeredInquiries} answered inquiry(ies)`, blockedBy: answeredInquiries > 0 ? undefined : 'no inbound inquiry answered yet' },
+    { n: 8, name: 'create a purchase order', verified: orders > 0, evidence: `${orders} order(s)` },
+    { n: 9, name: 'receive a real LIVE payment', verified: liveRevenue.length > 0, evidence: `${liveRevenue.length} confirmed live payment(s), $${liveRevenueUsd.toFixed(2)}`, blockedBy: liveRevenue.length > 0 ? undefined : 'no live payment received yet' },
+    { n: 10, name: 'fulfil and deliver the order', verified: delivered > 0, evidence: `${delivered} delivered order(s)`, blockedBy: delivered > 0 ? undefined : 'no order delivered yet' },
+    { n: 11, name: 'compute profit after costs', verified: liveRevenue.length > 0, evidence: `net profit $${report.summary.netProfitUsd.toFixed(2)} over $${report.summary.grossRevenueUsd.toFixed(2)} collected`, blockedBy: liveRevenue.length > 0 ? undefined : 'no collected revenue to compute profit on' },
   ];
   json(res, 200, commercialReadiness(items));
 });
@@ -644,6 +649,47 @@ route('POST', '/products/landing', true, async (_req, res, _owner, body) => {
   if (!slug) return json(res, 400, { error: 'slug is required' });
   await generateLanding(slug);
   json(res, 200, { ok: true, slug });
+});
+
+// --- organic content & inbound (Phase 19) ----------------------------------
+
+route('GET', '/content', true, async (_req, res) => {
+  json(res, 200, { articles: await listAllArticles() });
+});
+
+/** Draft an article from real public signals. Drafting is safe; it never publishes. */
+route('POST', '/content/draft', true, async (_req, res, owner, body) => {
+  const topic = String(body['topic'] ?? '').trim();
+  if (!topic) return json(res, 400, { error: 'topic is required' });
+  const productSlug = body['productSlug'] ? String(body['productSlug']) : null;
+  const { id, slug } = await draftArticle({ topic, productSlug });
+  await audit({ actorType: 'owner', actorId: owner?.id, action: 'content.drafted', target: slug, metadata: { topic } });
+  json(res, 200, { ok: true, id, slug });
+});
+
+/**
+ * Publish a drafted article to TAREQ's own site. Gated inside `publishArticle()`
+ * on the `contentPublishingAllowed` control and the emergency stop, so neither a
+ * route caller nor the scheduler can publish without the owner's permission.
+ */
+route('POST', '/content/publish', true, async (_req, res, owner, body) => {
+  const slug = String(body['slug'] ?? '');
+  if (!slug) return json(res, 400, { error: 'slug is required' });
+  const result = await publishArticle(slug, owner?.id ?? 'owner');
+  json(res, 200, { ok: true, ...result });
+});
+
+route('GET', '/inquiries', true, async (_req, res) => {
+  json(res, 200, { inquiries: await listInquiries() });
+});
+
+/** Answer (and, if email permission is granted, reply to) an inbound inquiry. */
+route('POST', '/inquiries/answer', true, async (_req, res, owner, body) => {
+  const id = String(body['id'] ?? '');
+  if (!id) return json(res, 400, { error: 'id is required' });
+  const result = await answerInquiry(id);
+  await audit({ actorType: 'owner', actorId: owner?.id, action: 'inquiry.answered_by_owner', target: id, metadata: result });
+  json(res, 200, { ok: true, ...result });
 });
 
 route('GET', '/orders', true, async (_req, res) => {
@@ -816,8 +862,80 @@ const server = createServer(async (req, res) => {
 
     if (req.method === 'GET' && url.pathname === '/robots.txt') {
       res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8' });
-      res.end('User-agent: *\nAllow: /\nDisallow: /orders\nDisallow: /commercial\n');
+      res.end('User-agent: *\nAllow: /\nDisallow: /orders\nDisallow: /commercial\nSitemap: ' + baseUrlFromReq(req) + '/sitemap.xml\n');
       return;
+    }
+
+    if (req.method === 'GET' && url.pathname === '/sitemap.xml') {
+      const base = baseUrlFromReq(req);
+      const products = await listProducts(true);
+      const articles = await listPublishedArticles();
+      const urls = [
+        { loc: `${base}/`, pri: '0.6' },
+        { loc: `${base}/insights`, pri: '0.8' },
+        { loc: `${base}/shop`, pri: '0.9' },
+        { loc: `${base}/contact`, pri: '0.5' },
+        ...products.map((p) => ({ loc: `${base}/buy/${p.slug}`, pri: '0.9' })),
+        ...articles.map((a) => ({ loc: `${base}/insights/${a.slug}`, pri: '0.7' })),
+      ];
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls
+        .map((u) => `  <url><loc>${u.loc.replace(/&/g, '&amp;')}</loc><priority>${u.pri}</priority></url>`)
+        .join('\n')}\n</urlset>\n`;
+      res.writeHead(200, { 'content-type': 'application/xml; charset=utf-8' });
+      res.end(xml);
+      return;
+    }
+
+    // --- organic publishing: TAREQ's own, owner-controlled content channel ----
+    if (req.method === 'GET' && url.pathname === '/insights') {
+      const articles = await listPublishedArticles();
+      return sendHtml(res, 200, insightsHtml(articles));
+    }
+
+    if (req.method === 'GET' && url.pathname.startsWith('/insights/')) {
+      const slug = decodeURIComponent(url.pathname.slice('/insights/'.length));
+      const a = await getPublishedArticle(slug);
+      if (!a) return sendHtml(res, 404, notFoundHtml('Article not found'));
+      return sendHtml(res, 200, articleHtml(a));
+    }
+
+    // --- inbound: a visitor's own question (explicit consent, not outreach) ---
+    if (req.method === 'GET' && url.pathname === '/contact') {
+      const products = await listProducts(true);
+      return sendHtml(res, 200, contactHtml({ products: products.map((p) => ({ slug: p.slug, name: p.name })) }));
+    }
+
+    if (req.method === 'POST' && url.pathname === '/contact') {
+      const ip = clientIp(req);
+      const limit = rateLimit(`contact:ip:${ip}`, 5, 60 * 60_000);
+      if (!limit.ok) return sendHtml(res, 429, notFoundHtml('Too many messages. Please try again later.'));
+      const raw = await readRawBody(req);
+      const form = parseFormBody(raw, String(req.headers['content-type'] ?? ''));
+      try {
+        const { id } = await createInquiry({
+          email: String(form['email'] ?? ''),
+          name: form['name'] ? String(form['name']) : null,
+          message: String(form['message'] ?? ''),
+          productSlug: form['productSlug'] ? String(form['productSlug']) : null,
+          ip,
+        });
+        // Answer immediately from verified product data; a reply email is sent
+        // only if the owner has granted email permission, otherwise it is stored.
+        await answerInquiry(id).catch((err) => logger.warn('inquiry auto-answer failed', { error: (err as Error).message }));
+        const products = await listProducts(true);
+        return sendHtml(
+          res,
+          200,
+          contactHtml({ products: products.map((p) => ({ slug: p.slug, name: p.name })), notice: 'Thank you — your question has been received. We will reply to the email you gave us.' }),
+        );
+      } catch (err) {
+        const products = await listProducts(true);
+        return sendHtml(
+          res,
+          400,
+          contactHtml({ products: products.map((p) => ({ slug: p.slug, name: p.name })), error: (err as Error).message }),
+        );
+      }
     }
 
     // Stripe webhook: public endpoint, raw body, signature-verified.

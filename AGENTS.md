@@ -481,3 +481,52 @@ only checked 2 of 6 scheduler kinds; PR #9 derives it from `DEFAULT_SCHEDULES`.
 can discover, draft, publish (gated), check out (LIVE) and deliver; it cannot
 legitimately reach a customer yet, so no sale is possible without an owner
 decision. Do NOT report revenue: prod gross is $0 and no order exists.
+
+## 2026-11-11 — Phase 19: organic publishing + inbound inquiry (acquisition legs)
+
+The lifecycle was missing two execution paths: no way to publish content on a
+channel TAREQ controls, and no way to answer a visitor who asks a question. Both
+are now real, tested, and owner-gated.
+
+**What was added (all in `tareq/`):**
+- Schema (`prisma/schema.prisma`, schema `tareq`): `Article` (+ `ArticleStatus`
+  enum) and `Inquiry` (+ `InquiryStatus`). Both enums carry `@@schema("tareq")` —
+  a Prisma multi-schema requirement; a missing `@@schema` breaks `prisma generate`.
+- `src/lib/commercial/publishing.ts` — drafts an article from REAL public signals
+  (HN Algolia + Wikipedia), cites each source, and publishes only through
+  `publishArticle()`, which enforces `contentPublishingAllowed` + emergency stop
+  and refuses to publish an article with no traceable source (QA gate).
+- `src/lib/commercial/inquiries.ts` — stores an inbound question and answers it
+  from the product's OWN verified fields (deliverables/price/requirements/
+  limitations). No answer is invented. A reply email is sent ONLY when the person
+  submitted the form (consent), `outreachAllowed` is on, and email is configured.
+- `src/lib/security/controls.ts` — new `contentPublishingAllowed` control
+  (distinct from the product `publishingAllowed`), default false, gated by
+  `assertContentPublishingAllowed()`.
+- Public routes: `GET /insights`, `GET /insights/:slug`, `GET /contact`,
+  `POST /contact` (rate-limited 5/hr/IP), `GET /sitemap.xml`; robots.txt now
+  advertises the sitemap. Nav updated in `src/app/storefront.ts`.
+- Owner routes: `GET /content`, `POST /content/draft`, `POST /content/publish`,
+  `GET /inquiries`, `POST /inquiries/answer`.
+- Handlers: `content.draft_article` (topic from the newest open Opportunity when
+  not given) and `inquiry.answer`; schedule `content.weekly` (Mon/Thu 09:00).
+- `/readiness` now reports "publish authorized organic content" and derives
+  "record a real response" from answered inquiries. Dashboard exposes the new
+  Content toggle (EN + AR).
+
+**Verified end-to-end against the isolated test DB (TAREQ_USE_TEST_DB=1):**
+publish while content permission OFF → 401; publish ON with no source → 400 QA
+refusal; publish ON with a sourced article → 200 and it appears on /insights,
+/sitemap.xml and its own page; a public /contact submission is answered from real
+product data with `replySentAt = null` (no email while outreach is off).
+
+**Test DB gotcha:** `npm test` uses `TEST_DATABASE_URL` from `.env` (sourced by
+`scripts/test-db-setup.sh`). Running `npx prisma db push` bare targets the
+PRODUCTION `DATABASE_URL` — always run `npm run test:db:setup` for the test DB.
+
+**Outbound send is still not a lawful path:** the 100 prod leads are HN handles
+with no email and no consent, so `sales.outreach_send` remains a stub and is NOT
+required for the objective. Customer acquisition now runs through the two lawful
+paths above (owner-authorized organic content + inbound contact). Still no sale:
+no channel reaches a real buyer until content is published and a visitor makes
+contact — both now require only an owner decision, not new code.
