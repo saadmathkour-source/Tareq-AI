@@ -56,9 +56,10 @@ Honest, current limitations. None of these is hidden from the dashboard.
     inquiry is stored and answered from verified product data. Email is sent only
     when the owner has enabled outreach permission and a provider is configured.
     The dashboard exposes inquiry status and whether the provider accepted a
-    reply. If sending fails after an inquiry reaches `ANSWERED`, automatic/manual
-    retry is not yet implemented; do not treat the email as delivered unless
-    `replySentAt` is present.
+    reply. The latest `main` source adds a delivery lease and retry handling, but
+    it requires the additive `reply_claimed_at` database field and a deployment
+    before it can be relied on in production. Do not treat email as delivered
+    unless `replySentAt` is present.
 14. **Commercial activation is owner-gated.** The content owner interface is in
     draft PR #12 and is not in production. No production content permission or
     inquiry email permission was activated in this task. No genuine customer,
