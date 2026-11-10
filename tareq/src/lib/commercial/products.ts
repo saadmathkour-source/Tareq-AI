@@ -43,35 +43,31 @@ export interface ProductDefinition {
 }
 
 /**
- * The flagship product: a source-cited market opportunity report. It is
- * deliverable end-to-end with the research + commercial engines already in the
- * repo, so nothing about it is aspirational. `status` here mirrors the catalog
+ * The current product: a public-demand signal report. `status` here mirrors the catalog
  * seed intent (DRAFT): `seedProducts()` never publishes, so this product is
  * created as a draft and only goes live through the gated `publishProduct()`.
  */
 export const MARKET_OPPORTUNITY_REPORT: ProductDefinition = {
   slug: 'market-opportunity-report',
   name: 'Market Opportunity Report',
-  tagline: 'A source-cited read on whether a niche is worth entering — demand signals, white space, and a scored shortlist.',
+  tagline: 'A source-linked snapshot of public discussion signals for one market or niche.',
   problem:
-    'Founders and small teams waste weeks (and money) entering niches on gut feel. Public demand signals, competitor gaps and realistic pricing are scattered across forums, wikis and product pages, and nobody has time to assemble them into a decision.',
+    'Founders need a quick, sourced view of what people are publicly discussing before deciding what to research next.',
   solution:
-    'We run a structured, automated analysis of your chosen niche using public, citable sources (Hacker News discussion, Wikipedia, public product pages). You receive a written report that states what the public signals actually show, where the white space is, how incumbents appear to price, and a scored shortlist of specific opportunities — with every factual claim tied to a source URL and date.',
+    'We scan public Hacker News discussions and include a Wikipedia background entry when one is available for the requested topic. The report returns observed discussion counts, a transparent signal score, source links, a short summary, and a clearly labelled draft offer. This is an initial desk-research snapshot, not full market validation.',
   deliverables: [
-    'A written Market Opportunity Report (PDF-ready markdown) for your chosen niche.',
-    'A demand-signal appendix: each signal with title, source URL, points/comments and date.',
-    'A competitor & white-space section derived from public product information.',
-    'A pricing benchmark section with the reasoning and its assumptions stated.',
-    'A scored opportunity shortlist with the scoring inputs shown.',
-    'An explicit "what this report does NOT prove" section.',
+    'A downloadable structured report for one requested market or niche.',
+    'A short summary and Hacker News discussion counts, recency, average engagement, and conservative confidence estimate.',
+    'Up to 25 available source titles, URLs, engagement counts, and source dates when provided.',
+    'A 0–100 discussion-signal score with its weights and limitations.',
+    'A draft offer and an explicit list of what the available evidence does not prove.',
   ],
   deliverySteps: [
-    'Confirm the niche and any constraints with the buyer.',
-    'Collect public demand signals (Hacker News Algolia, Wikipedia) for the niche.',
-    'Run the commercial engines (demand interpretation, white-space mapping, economics, risk).',
-    'Draft the report with the model, attaching a source URL + date to each factual claim.',
-    'Validate the draft against the QA checklist (sources present, no unsupported numbers).',
-    'Store the deliverable as a versioned artifact and notify the buyer of its location.',
+    'Use the topic supplied at checkout to query the configured public sources.',
+    'Calculate the published discussion-signal score from source volume, recency, and engagement.',
+    'Generate a short summary and draft offer from the collected data.',
+    'Check that the report names the topic, includes valid source links, and labels estimates and limitations.',
+    'Store the report as a downloadable order artifact and email its private link to the buyer.',
   ],
   requirements: [
     'The niche or market in one or two sentences.',
@@ -79,16 +75,17 @@ export const MARKET_OPPORTUNITY_REPORT: ProductDefinition = {
     'Any geography constraint (default: US/UK/CA/AU English-language markets).',
   ],
   limitations: [
-    'Based on public, keyless sources only — it is not a paid analyst dataset.',
-    'Demand signals measure public discussion, not verified willingness to pay.',
-    'Competitor pricing is inferred from public pages and may change without notice.',
+    'The current report uses public discussion signals from Hacker News and Wikipedia; it is not comprehensive market research.',
+    'Public discussion is a weak proxy and does not establish customer demand or willingness to pay.',
+    'It does not include competitor analysis, market sizing, verified pricing benchmarks, or customer interviews.',
+    'The value-leak figures are illustrative defaults, not measured for your business.',
     'It is decision support, not financial, legal or investment advice.',
   ],
   qaChecklist: [
-    'Every factual market claim has a source URL and a collection date.',
-    'No invented statistics: estimates are labelled as estimates with their basis.',
-    'The "what this does not prove" section is present and specific.',
-    'The report names the niche it was generated for.',
+    'Report names the requested topic.',
+    'Every listed public signal has a title and a valid HTTP(S) source URL.',
+    'Report states that discussion is not proof of willingness to pay.',
+    'Report labels the default value-leak assumptions as illustrative.',
   ],
   priceUsd: 149,
   costUsd: 1.5,

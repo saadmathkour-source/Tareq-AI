@@ -96,7 +96,7 @@ export function buildReport(topic: string, demand: DemandScan, summary: string):
     scoring,
     notProven: [
       'Demand signals measure public discussion, not confirmed willingness to pay.',
-      'Competitor pricing is not included unless public pages were fetched for this niche.',
+      'This report does not include competitor analysis or a verified pricing benchmark.',
       'No revenue, conversion or customer outcome is claimed or guaranteed.',
       'The value-leak figures are illustrative defaults, not measured for a specific buyer.',
     ],
@@ -108,16 +108,34 @@ export function buildReport(topic: string, demand: DemandScan, summary: string):
 
 /** QA: a deliverable is accepted only if it satisfies the product checklist. */
 export function validateReport(report: OpportunityReport, qaChecklist: string[]): { ok: boolean; checks: Array<{ check: string; ok: boolean }> } {
+  const validSources = report.demand.sources.length > 0 && report.demand.sources.every((source) => {
+    try {
+      const url = new URL(source.url);
+      return Boolean(source.title.trim()) && (url.protocol === 'http:' || url.protocol === 'https:');
+    } catch {
+      return false;
+    }
+  });
   const checks = [
     { check: 'names the niche', ok: report.topic.trim().length > 0 },
-    { check: 'has a source list', ok: report.demand.sources.length > 0 },
-    { check: 'states what is not proven', ok: report.notProven.length > 0 },
+    { check: 'has titled sources with valid HTTP(S) URLs', ok: validSources },
+    { check: 'states public discussion does not prove willingness to pay', ok: report.notProven.some((item) => /public discussion.*not confirmed willingness to pay/i.test(item)) },
+    { check: 'labels default value-leak assumptions as illustrative', ok: report.notProven.some((item) => /value-leak figures are illustrative defaults/i.test(item)) },
     { check: 'labels estimates', ok: report.scoring.basis.length > 0 && report.disclaimer.length > 0 },
     { check: 'has an executive summary', ok: report.executiveSummary.trim().length > 0 },
   ];
-  // Every declared product QA line must correspond to at least the generic checks.
-  const ok = checks.every((c) => c.ok) && qaChecklist.length >= 0;
-  return { ok, checks };
+  const productChecks: Record<string, boolean> = {
+    'Report names the requested topic.': checks[0]!.ok,
+    'Every listed public signal has a title and a valid HTTP(S) source URL.': checks[1]!.ok,
+    'Report states that discussion is not proof of willingness to pay.': checks[2]!.ok,
+    'Report labels the default value-leak assumptions as illustrative.': checks[3]!.ok,
+  };
+  const declaredChecks = qaChecklist.map((check) => ({
+    check,
+    ok: productChecks[check] ?? false,
+  }));
+  const allChecks = [...checks, ...declaredChecks];
+  return { ok: allChecks.every((check) => check.ok), checks: allChecks };
 }
 
 async function draftSummary(topic: string, demand: DemandScan): Promise<string> {
