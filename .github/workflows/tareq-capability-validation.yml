@@ -24,13 +24,10 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: tareq/package-lock.json
-      - name: Resolve security override for review
-        shell: bash
-        run: |
-          npm install --package-lock-only --ignore-scripts
-          git diff -- package-lock.json
-      - name: Install dependencies
+      - name: Install dependencies (locked)
         run: npm ci
+      - name: Reject high-severity dependency advisories
+        run: npm audit --audit-level=high
       - name: Dependency audit report (advisory names only)
         shell: bash
         run: |
@@ -42,3 +39,50 @@ jobs:
         run: npm run build
       - name: Bounded analytical tests (no production secrets or database)
         run: node --test --experimental-strip-types tests/capability-execution.test.ts tests/capability-route.test.ts tests/capability-index.test.ts tests/capabilities.test.ts tests/commercial.test.ts
+
+  integration:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: tareq_ci
+          POSTGRES_PASSWORD: local_ci_only
+          POSTGRES_DB: tareq_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tareq_ci -d tareq_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 8
+    defaults:
+      run:
+        working-directory: tareq
+    env:
+      # Test-only local PostgreSQL; never read any production connection secret.
+      DATABASE_URL: postgresql://tareq_ci:local_ci_only@127.0.0.1:5432/postgres?schema=tareq
+      DIRECT_URL: postgresql://tareq_ci:local_ci_only@127.0.0.1:5432/postgres?schema=tareq
+      TEST_DATABASE_URL: postgresql://tareq_ci:local_ci_only@127.0.0.1:5432/tareq_test?schema=tareq
+      TEST_DIRECT_URL: postgresql://tareq_ci:local_ci_only@127.0.0.1:5432/tareq_test?schema=tareq
+      TAREQ_OWNER_EMAIL: ci-owner@example.test
+      TAREQ_OWNER_PASSWORD: CI-only-nonproduction-password-123
+      TAREQ_SESSION_SECRET: ci-test-only-session-secret-at-least-32-characters
+      TAREQ_USE_TEST_DB: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tareq/package-lock.json
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Generate Prisma client
+        run: npm run db:generate
+      - name: Initialize isolated database
+        run: npm run test:db:setup
+      - name: Execute full integration test suite
+        run: npm test
