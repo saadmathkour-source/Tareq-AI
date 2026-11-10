@@ -16,6 +16,7 @@ import { logger } from '../lib/core/logger.ts';
 import { authenticate, assertSessionLive, login, logout, revokeAllSessions, type OwnerIdentity } from '../lib/security/owner-auth.ts';
 import { currentMode, setMode, type OperatingMode } from '../lib/security/permissions.ts';
 import { health, capabilityTable } from '../lib/observability/health.ts';
+import { evaluateAnalyticalCapability, analyticalCapabilityInfo } from '../lib/capabilities/execution.ts';
 import { stats as queueStats, cancel } from '../lib/queue/tasks.ts';
 import { summary as financeSummary, acquisitionMetrics } from '../lib/finance/ledger.ts';
 import { financialReport } from '../lib/finance/report.ts';
@@ -220,6 +221,35 @@ route('POST', '/mode', true, async (_req, res, owner, body) => {
 
 route('GET', '/capabilities', true, async (_req, res) => {
   json(res, 200, capabilityTable());
+});
+
+/**
+ * One bounded, owner-authenticated, read-only analytical invocation.
+ * This is not a task scheduler, a production acceptance test, or permission
+ * to interact with buyers. All input is owner-supplied JSON; no side effects.
+ */
+route('POST', '/capabilities/evaluate', true, async (_req, res, owner, body) => {
+  const n = Number(body['id']);
+  if (!Number.isInteger(n) || !analyticalCapabilityInfo(n)) {
+    return json(res, 400, { error: 'capability must be an analytical group numbered 29–100' });
+  }
+  try {
+    const args = body['args'];
+    if (!Array.isArray(args)) return json(res, 400, { error: 'args must be a JSON array' });
+    const evaluation = evaluateAnalyticalCapability(n, args);
+    await audit({
+      actorType: 'owner',
+      actorId: owner!.id,
+      action: 'capability.analytical_evaluation',
+      target: String(n),
+      metadata: { argsCount: args.length, engine: evaluation.capability.engine, externalActionPerformed: false },
+    });
+    json(res, 200, { ok: true, evaluation });
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'analytical evaluation failed';
+    // A failed evaluation is a user-visible error, never a successful capability.
+    json(res, 400, { ok: false, error: reason.slice(0, 220) });
+  }
 });
 
 route('GET', '/integrations', true, async (_req, res) => {

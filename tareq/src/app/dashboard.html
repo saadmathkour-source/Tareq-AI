@@ -183,6 +183,21 @@
         </select>
       </div>
       <div id="caps"></div>
+      <details style="margin-top:14px">
+        <summary id="capEvaluateSummary">Run an analytical capability (29–100) — owner input only</summary>
+        <p class="muted" id="capEvaluateHint">Local deterministic analysis. No customer contact, live payment, or production verification.</p>
+        <form id="capEvaluateForm">
+          <div class="row" style="gap:8px;flex-wrap:wrap">
+            <label for="capEvaluateId">Capability #</label>
+            <input id="capEvaluateId" type="number" min="29" max="100" value="65" required style="max-width:100px" />
+            <label for="capEvaluateArgs">Arguments (JSON array)</label>
+            <input id="capEvaluateArgs" value='[[{"priceUsd":100,"impressions":100,"trials":10,"purchases":0}]]' required style="min-width:260px;flex:1" />
+            <button class="primary" type="submit" id="capEvaluateBtn">Evaluate safely</button>
+          </div>
+        </form>
+        <p class="muted" id="capEvaluateError" role="alert"></p>
+        <pre id="capEvaluateOutput" style="white-space:pre-wrap;overflow-wrap:anywhere"></pre>
+      </details>
     </div>
   </section>
 
@@ -366,6 +381,38 @@ function renderCaps() {
       '</td><td class="muted" style="font-size:11px">' + esc((c.evidence || []).join('; ')) + '</td></tr>').join('') + '</tbody></table>';
 }
 
+// No results are reported as production evidence. The route validates the
+// owner session and runs a bounded, deterministic, non-external computation.
+async function evaluateCapability(ev) {
+  ev.preventDefault();
+  const button = document.getElementById('capEvaluateBtn');
+  const error = document.getElementById('capEvaluateError');
+  const output = document.getElementById('capEvaluateOutput');
+  error.textContent = '';
+  output.textContent = '';
+  let id, args;
+  try {
+    id = Number(document.getElementById('capEvaluateId').value);
+    args = JSON.parse(document.getElementById('capEvaluateArgs').value);
+    if (!Number.isInteger(id) || id < 29 || id > 100 || !Array.isArray(args)) {
+      throw new Error('Enter an ID from 29 to 100 and a JSON array of arguments');
+    }
+  } catch (e) {
+    error.textContent = e.message;
+    return;
+  }
+  button.disabled = true;
+  try {
+    const result = await api('/capabilities/evaluate', { method: 'POST', body: JSON.stringify({ id, args }) });
+    output.textContent = JSON.stringify(result.evaluation, null, 2);
+  } catch (e) {
+    error.textContent = e.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+document.getElementById('capEvaluateForm').onsubmit = evaluateCapability;
+
 function applyLang() {
   document.documentElement.lang = lang;
   document.documentElement.dir = lang === 'ar' ? 'rtl' : 'ltr';
@@ -373,6 +420,9 @@ function applyLang() {
   document.getElementById('planGoal').placeholder = lang === 'ar' ? 'اكتب أمرًا بالعربية أو الإنجليزية…' : 'Type a command in English or Arabic…';
   document.getElementById('capSearch').placeholder = lang === 'ar' ? 'ابحث في القدرات…' : 'Search capabilities…';
   document.getElementById('contentTopic').placeholder = t('contentTopicPlaceholder');
+  document.getElementById('capEvaluateSummary').textContent = lang === 'ar' ? 'تشغيل قدرة تحليلية (29–100) بمدخلات المالك' : 'Run an analytical capability (29–100) — owner input only';
+  document.getElementById('capEvaluateHint').textContent = lang === 'ar' ? 'حساب تحليلي محلي فقط؛ لا يرسل رسائل، ولا ينفذ دفعًا، ولا يثبت جاهزية الإنتاج.' : 'Local deterministic analysis only. No customer contact, live payment, or production verification.';
+  document.getElementById('capEvaluateBtn').textContent = lang === 'ar' ? 'اختبار القدرة بأمان' : 'Evaluate safely';
 }
 
 async function api(path, opts = {}) {
