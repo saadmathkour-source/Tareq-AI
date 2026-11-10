@@ -4,7 +4,7 @@ import { prisma } from '../src/lib/core/db.ts';
 import { articleProductSlug, publishArticle, getPublishedArticle } from '../src/lib/commercial/publishing.ts';
 import { createInquiry, answerInquiry } from '../src/lib/commercial/inquiries.ts';
 import { getControls, setControls } from '../src/lib/security/controls.ts';
-import { registerAllHandlers } from '../src/lib/core/handlers.ts';
+import { publishDraftWithinOwnerScope, registerAllHandlers } from '../src/lib/core/handlers.ts';
 import { registeredKinds } from '../src/lib/core/orchestrator.ts';
 
 /**
@@ -102,6 +102,29 @@ test('organic article defaults to the flagship checkout only while the offer is 
     assert.equal(await articleProductSlug(), null, 'a draft product must not be advertised');
   } finally {
     await prisma.product.update({ where: { id: product!.id }, data: { status: before } });
+  }
+});
+
+test('scheduled article publishing stays draft by default and publishes only with owner content permission', async () => {
+  const slug = `t-scheduled-${Date.now()}`;
+  const art = await prisma.article.create({
+    data: { slug, title: 'Market evidence', summary: 'A sourced summary', bodyHtml: '<p>Useful guidance</p>', sources: SOURCE as never },
+  });
+  try {
+    await withContent(false, async () => {
+      const result = await publishDraftWithinOwnerScope(slug);
+      assert.equal(result.status, 'DRAFT');
+      assert.equal(result.skipped, 'owner content-publishing permission is off');
+      assert.equal(await getPublishedArticle(slug), null);
+    });
+    await withContent(true, async () => {
+      const result = await publishDraftWithinOwnerScope(slug);
+      assert.equal(result.status, 'PUBLISHED');
+      assert.equal(result.publicPath, `/insights/${slug}`);
+      assert.ok(await getPublishedArticle(slug));
+    });
+  } finally {
+    await prisma.article.delete({ where: { id: art.id } });
   }
 });
 

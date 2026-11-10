@@ -189,7 +189,8 @@ export async function publishArticle(slug: string, actorId: string): Promise<{ s
     where: { slug },
     data: { status: 'PUBLISHED', publishedAt: article.publishedAt ?? new Date() },
   });
-  await audit({ actorType: 'owner', actorId, action: 'content.article_published', target: slug, severity: 'warn' });
+  const actorType = actorId === 'scheduled-content-agent' ? 'agent' : 'owner';
+  await audit({ actorType, actorId, action: 'content.article_published', target: slug, severity: 'warn' });
   return { slug: updated.slug, status: updated.status };
 }
 
