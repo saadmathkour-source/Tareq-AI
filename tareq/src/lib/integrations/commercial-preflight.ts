@@ -31,8 +31,9 @@ export async function verifyCommercialConnections() {
       stripe.accountId = account.id ?? null;
       stripe.chargesEnabled = account.charges_enabled === true;
       stripe.payoutsEnabled = account.payouts_enabled === true;
-      const base = process.env.TAREQ_PUBLIC_URL || process.env.APP_URL ||
-        (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : '');
+      // Use TAREQ's actual Railway host before a legacy APP_URL from another app.
+      const base = process.env.TAREQ_PUBLIC_URL ||
+        (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : '') || process.env.APP_URL || '';
       if (!base) {
         stripe.reason = 'Public application URL is not configured';
       } else {

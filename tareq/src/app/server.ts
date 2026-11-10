@@ -223,12 +223,18 @@ route('GET', '/capabilities', true, async (_req, res) => {
 });
 
 route('GET', '/integrations', true, async (_req, res) => {
+  const commercialVerification = await prisma.task.findFirst({
+    where: { kind: 'integration.verify_commercial', status: 'SUCCEEDED' },
+    orderBy: { finishedAt: 'desc' },
+    select: { id: true, result: true, finishedAt: true },
+  });
   json(res, 200, {
     gmail: gmailStatus(),
     email: emailStatus(),
     hubspot: hubspotStatus(),
     stripe: stripeStatus(),
     telegram: { configured: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_OWNER_ID) },
+    commercialVerification,
   });
 });
 
@@ -690,14 +696,9 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
 
-    // Visitors enter the sales path; owner controls stay at /dashboard.
-    if (req.method === 'GET' && url.pathname === '/') {
-      res.writeHead(302, { location: '/shop' });
-      res.end();
-      return;
-    }
-    // Owner dashboard (static shell; data comes from authenticated API calls).
-    if (req.method === 'GET' && url.pathname === '/dashboard') {
+    // Restore the owner's original entry point; the public shop stays at /shop.
+    // This is only a static sign-in shell. Every data/action API stays protected.
+    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/dashboard')) {
       const html = dashboard();
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(html) });
       res.end(html);
