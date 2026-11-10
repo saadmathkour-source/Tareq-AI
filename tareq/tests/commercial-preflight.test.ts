@@ -74,3 +74,17 @@ test('provider errors never persist arbitrary response text', async () => {
   assert.equal(result.stripe.accountVerified, false);
   assert.equal(JSON.stringify(result).includes('private-dummy-secret'), false);
 });
+
+test('the actual Railway host takes precedence over an unrelated legacy APP_URL', async () => {
+  configure();
+  delete process.env.TAREQ_PUBLIC_URL;
+  process.env.RAILWAY_PUBLIC_DOMAIN = 'tareq-railway.example.test';
+  process.env.APP_URL = 'https://legacy.example.test';
+  globalThis.fetch = async (input) => {
+    const url = String(input);
+    if (url.includes('oauth2')) return Response.json({access_token:'dummy-access'});
+    if (url.endsWith('/account')) return Response.json({id:'acct_tareq_test',charges_enabled:true});
+    return Response.json({data:[{url:'https://tareq-railway.example.test/webhooks/stripe',status:'enabled',enabled_events:['checkout.session.completed']}]});
+  };
+  assert.equal((await verifyCommercialConnections()).stripe.matchingWebhookEnabled, true);
+});

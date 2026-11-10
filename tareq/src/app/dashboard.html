@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex,nofollow" />
 <title>TAREQ — Owner Command Center</title>
 <style>
   :root {
@@ -63,23 +64,27 @@
   <span class="spacer"></span>
   <span class="pill info" id="modePill">—</span>
   <button class="ghost" id="langBtn" title="Language / اللغة">EN / ع</button>
-  <button class="ghost" id="refreshBtn" data-i18n="refresh">Refresh</button>
-  <button class="danger" id="stopBtn" data-i18n="stop">Emergency stop</button>
+  <a href="/shop" data-i18n="shop">Shop</a>
+  <button class="ghost hidden" id="refreshBtn" data-i18n="refresh">Refresh</button>
+  <button class="danger hidden" id="stopBtn" data-i18n="stop">Emergency stop</button>
   <button class="ghost hidden" id="logoutBtn" data-i18n="logout">Sign out</button>
 </header>
 
 <div id="login">
-  <div class="card">
+  <form class="card" id="loginForm">
     <h3 data-i18n="loginTitle">Owner sign-in</h3>
-    <div class="row" style="margin-bottom:8px"><input id="email" type="email" placeholder="owner@example.com" autocomplete="username" /></div>
-    <div class="row" style="margin-bottom:10px"><input id="password" type="password" placeholder="••••••••" autocomplete="current-password" /></div>
-    <div class="row"><button class="primary" id="loginBtn" data-i18n="signin">Sign in</button></div>
-    <p class="err" id="loginErr"></p>
+    <label for="email" data-i18n="ownerEmail">Owner email</label>
+    <div class="row" style="margin-bottom:8px"><input id="email" name="email" type="email" placeholder="owner@example.com" autocomplete="username" required /></div>
+    <label for="password" data-i18n="ownerPassword">Password</label>
+    <div class="row" style="margin-bottom:10px"><input id="password" name="password" type="password" placeholder="••••••••" autocomplete="current-password" required /></div>
+    <div class="row"><button class="primary" type="submit" id="loginBtn" data-i18n="signin">Sign in</button></div>
+    <p class="err" id="loginErr" role="alert"></p>
     <p class="muted" style="font-size:12px" data-i18n="loginHint">Owner-only. No other account can issue commands.</p>
-  </div>
+  </form>
 </div>
 
 <main id="app" class="hidden">
+  <p id="loadStatus" role="status" aria-live="polite"></p>
   <section>
     <h2 data-i18n="s.executive">Executive overview</h2>
     <div class="grid" id="exec"></div>
@@ -262,6 +267,10 @@ const T = {
 };
 T.en = {
   'refresh':'Refresh','stop':'Emergency stop','logout':'Sign out','loginTitle':'Owner sign-in',
+  'shop':'Shop','ownerEmail':'Owner email','ownerPassword':'Password',
+  'loading':'Loading verified dashboard data…','loaded':'Dashboard data refreshed.',
+  'loadFailed':'Dashboard data could not be refreshed. Your session is retained; use Refresh to retry.',
+  'sessionExpired':'Your session has expired. Please sign in again.',
   'signin':'Sign in','loginHint':'Owner-only. No other account can issue commands.',
   's.executive':'Executive overview','s.control':'Control','s.approvals':'Approval center',
   's.tasks':'Task center','s.finance':'Revenue · expenses · profit','s.capabilities':'Capabilities (100)',
@@ -296,6 +305,10 @@ T.en = {
 };
 T.ar = {
   'refresh':'تحديث','stop':'إيقاف طارئ','logout':'تسجيل الخروج','loginTitle':'تسجيل دخول المالك',
+  'shop':'المتجر','ownerEmail':'بريد المالك','ownerPassword':'كلمة المرور',
+  'loading':'جارٍ تحميل بيانات اللوحة الفعلية…','loaded':'تم تحديث بيانات اللوحة.',
+  'loadFailed':'تعذر تحديث بيانات اللوحة. جلسة دخولك محفوظة؛ اضغط تحديث للمحاولة مجدداً.',
+  'sessionExpired':'انتهت جلسة الدخول. سجّل الدخول مجدداً.',
   'signin':'دخول','loginHint':'للمالك فقط. لا يمكن لأي حساب آخر إصدار أوامر.',
   's.executive':'النظرة التنفيذية','s.control':'التحكم','s.approvals':'مركز الموافقات',
   's.tasks':'مركز المهام','s.finance':'الإيرادات · المصروفات · الربح','s.capabilities':'القدرات (100)',
@@ -363,13 +376,78 @@ function applyLang() {
 }
 
 async function api(path, opts = {}) {
+  const requestToken = token;
   const res = await fetch(path, {
     ...opts,
+    signal: opts.signal || AbortSignal.timeout(30_000),
     headers: { 'content-type': 'application/json', ...(token ? { authorization: 'Bearer ' + token } : {}), ...(opts.headers || {}) },
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || ('HTTP ' + res.status));
+  if (!res.ok) {
+    const error = new Error(body.error || ('HTTP ' + res.status));
+    error.status = res.status;
+    if (res.status === 401 && path !== '/auth/login' && token === requestToken) {
+      clearSession();
+      document.getElementById('loginErr').textContent = t('sessionExpired');
+    }
+    throw error;
+  }
   return body;
+}
+
+function setSignedIn(signedIn) {
+  document.getElementById('login').classList.toggle('hidden', signedIn);
+  document.getElementById('app').classList.toggle('hidden', !signedIn);
+  for (const id of ['refreshBtn', 'stopBtn', 'logoutBtn']) {
+    document.getElementById(id).classList.toggle('hidden', !signedIn);
+  }
+}
+
+function clearSession() {
+  token = '';
+  sessionStorage.removeItem('tareq.token');
+  setSignedIn(false);
+}
+
+// Bound request fan-out rather than queueing every dashboard query at once.
+// A transient data error must never be treated as an invalid owner password.
+async function loadDashboardData(paths) {
+  const results = [];
+  let next = 0;
+  let failure;
+  await Promise.all([0, 1].map(async () => {
+    while (next < paths.length && !failure) {
+      const index = next++;
+      try { results[index] = await api(paths[index]); }
+      catch (error) { failure = failure || error; }
+    }
+  }));
+  if (failure) throw failure;
+  return results;
+}
+
+let refreshPromise = null;
+function refresh() {
+  if (!token) return Promise.resolve(false);
+  if (refreshPromise) return refreshPromise;
+  const sessionToken = token;
+  const message = document.getElementById('loadStatus');
+  message.textContent = t('loading');
+  document.getElementById('refreshBtn').disabled = true;
+  refreshPromise = renderDashboard(sessionToken).then((rendered) => {
+    if (rendered) message.textContent = t('loaded');
+    return rendered;
+  }).catch(() => {
+    if (token === sessionToken) {
+      message.textContent = t('loadFailed');
+      document.getElementById('healthDot').className = 'dot bad';
+    }
+    return false;
+  }).finally(() => {
+    refreshPromise = null;
+    document.getElementById('refreshBtn').disabled = false;
+  });
+  return refreshPromise;
 }
 
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
@@ -381,17 +459,19 @@ function card(label, value, sub) {
     (sub ? '<div class="muted" style="font-size:12px">' + esc(sub) + '</div>' : '') + '</div>';
 }
 
-async function refresh() {
-  const [h, mode, caps, tasks, approvals, fin, audit, leads, usage, errors, config, research, integ, comm, prods, ords, sup, ctl, opt, ready, content] = await Promise.all([
-    api('/health?deep=1'), api('/mode'), api('/capabilities'),
-    api('/tasks'), api('/approvals'), api('/finance'), api('/audit'),
-    api('/leads'), api('/usage'), api('/errors'), api('/config'), api('/research'), api('/integrations'),
-    api('/commercial/overview'), api('/products'), api('/orders'),
-    api('/supervisor'), api('/controls'), api('/optimization'), api('/readiness'), api('/content'),
+async function renderDashboard(sessionToken) {
+  const [h, mode, caps, tasks, approvals, fin, audit, leads, usage, errors, config, research, integ, comm, prods, ords, sup, ctl, opt, ready, content] = await loadDashboardData([
+    '/health?deep=1', '/mode', '/capabilities',
+    '/tasks', '/approvals', '/finance', '/audit',
+    '/leads', '/usage', '/errors', '/config', '/research', '/integrations',
+    '/commercial/overview', '/products', '/orders',
+    '/supervisor', '/controls', '/optimization', '/readiness', '/content',
   ]);
   // Keep this additional database read sequential because the production DB is
   // intentionally pooled with a low connection limit.
   const inquiryData = await api('/inquiries');
+  // A sign-out while requests were in flight must not render their owner data.
+  if (token !== sessionToken) return false;
 
   // health dot
   const dot = document.getElementById('healthDot');
@@ -537,6 +617,15 @@ async function refresh() {
     intRow('Stripe (payments)', intg.stripe && intg.stripe.configured, intg.stripe ? 'mode: ' + intg.stripe.mode + ', webhook: ' + (intg.stripe.webhookConfigured ? 'yes' : 'no') : '') +
     intRow('Telegram (bot)', intg.telegram && intg.telegram.configured, intg.telegram && intg.telegram.configured ? 'owner id set' : 'not configured') +
     '</tbody></table>';
+  const verification = intg.commercialVerification;
+  const result = verification && verification.result;
+  const checked = result && result.email;
+  document.getElementById('integrations').innerHTML +=
+    '<p class="muted">' + (lang === 'ar' ? 'آخر فحص إنتاج محفوظ: ' : 'Last recorded production check: ') +
+    esc(verification && verification.finishedAt || 'unverified') + '</p>' +
+    '<p>' + pill('Email connection: ' + (checked ? (checked.connectionVerified === true ? 'verified' : 'failed') : 'unverified'), checked && checked.connectionVerified === true ? 'ok' : 'warn') + ' ' +
+    pill('Email delivery: unverified', 'warn') + '</p>' +
+    '<p class="muted">' + (lang === 'ar' ? 'وجود المفاتيح لا يثبت الاتصال أو التسليم. تعرض هذه اللوحة نتيجة الفحص المحفوظ دون تشغيل فحص جديد.' : 'Configured credentials do not prove connection or delivery. This displays saved evidence without running another probe.') + '</p>';
 
   // health
   document.getElementById('health').innerHTML = Object.entries(h.checks || {})
@@ -668,29 +757,31 @@ async function refresh() {
     ri.map((i) => '<tr><td>' + i.n + '</td><td>' + esc(i.name) +
       '</td><td>' + pill(i.verified ? t('verified') : 'unverified', i.verified ? 'ok' : 'warn') +
       '</td><td class="muted" style="font-size:11px">' + esc(i.evidence || '') + '</td></tr>').join('') + '</tbody></table>';
+  return true;
 }
 
 // --- events ---
-document.getElementById('loginBtn').onclick = async () => {
+document.getElementById('loginForm').onsubmit = async (event) => {
+  event.preventDefault();
+  const button = document.getElementById('loginBtn');
+  if (button.disabled) return;
+  button.disabled = true;
   const err = document.getElementById('loginErr');
   err.textContent = '';
   try {
     const r = await api('/auth/login', { method: 'POST', body: JSON.stringify({
       email: document.getElementById('email').value, password: document.getElementById('password').value }) });
     token = r.token; sessionStorage.setItem('tareq.token', token);
-    document.getElementById('login').classList.add('hidden');
-    document.getElementById('app').classList.remove('hidden');
-    document.getElementById('logoutBtn').classList.remove('hidden');
+    document.getElementById('password').value = '';
+    setSignedIn(true);
     await refresh();
   } catch (e) { err.textContent = e.message; }
+  finally { button.disabled = false; }
 };
 
 document.getElementById('logoutBtn').onclick = async () => {
   try { await api('/auth/logout', { method: 'POST' }); } catch (e) {}
-  token = ''; sessionStorage.removeItem('tareq.token');
-  document.getElementById('app').classList.add('hidden');
-  document.getElementById('login').classList.remove('hidden');
-  document.getElementById('logoutBtn').classList.add('hidden');
+  clearSession();
 };
 
 document.getElementById('refreshBtn').onclick = () => refresh().catch((e) => alert(e.message));
@@ -803,9 +894,7 @@ document.getElementById('orders').onclick = async (ev) => {
 document.getElementById('stopBtn').onclick = async () => {
   if (!confirm(t('confirmStop'))) return;
   await api('/emergency-stop', { method: 'POST' });
-  token = ''; sessionStorage.removeItem('tareq.token');
-  document.getElementById('app').classList.add('hidden');
-  document.getElementById('login').classList.remove('hidden');
+  clearSession();
 };
 
 document.getElementById('approvals').onclick = async (ev) => {
@@ -857,13 +946,8 @@ document.getElementById('saveControlsBtn').onclick = async () => {
 // --- boot ---
 applyLang();
 if (token) {
-  document.getElementById('login').classList.add('hidden');
-  document.getElementById('app').classList.remove('hidden');
-  document.getElementById('logoutBtn').classList.remove('hidden');
-  refresh().catch(() => { token = ''; sessionStorage.removeItem('tareq.token');
-    document.getElementById('app').classList.add('hidden');
-    document.getElementById('login').classList.remove('hidden');
-    document.getElementById('logoutBtn').classList.add('hidden'); });
+  setSignedIn(true);
+  refresh();
 }
 </script>
 </body>

@@ -39,7 +39,7 @@ function shell(title: string, body: string): string {
 <header><div class="wrap"><span class="brand">TAREQ AI</span><nav><a href="/insights">Insights</a> · <a href="/shop">Shop</a> · <a href="/contact">Contact</a></nav></div></header>
 <main>${body}</main>
 <footer><p>Automated business research services. No results, certifications or partnerships are claimed.</p>
-<p><a href="/legal/terms">Terms</a> · <a href="/legal/privacy">Privacy</a> · <a href="/legal/refunds">Refunds</a> · <a href="mailto:support@tareq.ai">support@tareq.ai</a></p></footer>
+<p><a href="/legal/terms">Terms</a> · <a href="/legal/privacy">Privacy</a> · <a href="/legal/refunds">Refunds</a> · <a href="mailto:support@tareq.ai">support@tareq.ai</a> · <a href="/dashboard">Owner sign-in</a></p></footer>
 </body></html>`;
 }
 
