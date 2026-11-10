@@ -66,10 +66,30 @@ export async function markPaid(input: {
   const order = await prisma.order.findUnique({ where: { id: input.orderId } });
   if (!order) throw new ValidationError(`Order not found: ${input.orderId}`);
 
-  // Any post-payment state (including the delivery/email retry states) is
-  // already activated: a replayed webhook must never re-enqueue delivery.
-  if (['PAID', 'IN_DELIVERY', 'DELIVERY_PENDING', 'EMAIL_FAILED', 'DELIVERED'].includes(order.status)) {
+  // A delayed/replayed payment event must NEVER reopen a refunded or
+  // cancelled order. These statuses are terminal; only a new purchase can
+  // create a new order.
+  if (order.status === 'REFUNDED' || order.status === 'CANCELLED') {
+    throw new ValidationError(`Order ${order.id} is ${order.status}; cannot reactivate a closed payment`);
+  }
+
+  // Delivery completed: a replay must not restart delivery or re-send email.
+  if (order.status === 'DELIVERED') {
     return { orderId: order.id, alreadyPaid: true, deliveryTaskId: null };
+  }
+
+  // Crash recovery: the first webhook may have committed PAID but died before
+  // enqueueing the task. Recreate the SAME idempotency-keyed delivery task on a
+  // replay; enqueue() returns the existing task if it was already created.
+  // This is NOT an instruction to re-send an email after delivery.
+  if (['PAID', 'IN_DELIVERY', 'DELIVERY_PENDING', 'EMAIL_FAILED'].includes(order.status)) {
+    const taskId = await enqueue({
+      kind: 'order.deliver',
+      payload: { orderId: order.id },
+      idempotencyKey: input.idempotencyKey ?? `order.deliver:${order.id}`,
+      priority: 'HIGH',
+    });
+    return { orderId: order.id, alreadyPaid: true, deliveryTaskId: taskId };
   }
 
   await prisma.order.update({
