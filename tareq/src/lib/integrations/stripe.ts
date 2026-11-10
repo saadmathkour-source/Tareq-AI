@@ -200,7 +200,7 @@ export function classifyStripeEvent(event: { id?: string; type?: string; livemod
   // Some asynchronous payment methods emit completed before funds settle.
   const paymentStatus = session['payment_status'];
   if (paymentStatus !== 'paid') {
-    return { action: 'ignore', reason: 'session is not confirmed paid' };
+    return { action: 'ignore', reason: 'session not paid (missing or invalid payment_status)' };
   }
   if (!Number.isFinite(amountUsd) || amountUsd <= 0 ||
       typeof session['currency'] !== 'string' || !session['currency']) {
