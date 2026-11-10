@@ -366,7 +366,7 @@ test('Stripe classification: live checkout with an order ref is revenue', () => 
     id: 'evt_live_1',
     type: 'checkout.session.completed',
     livemode: true,
-    data: { object: { id: 'cs_live_1', amount_total: 14900, client_reference_id: 'order-123' } },
+    data: { object: { id: 'cs_live_1', amount_total: 14900, currency: 'usd', payment_status: 'paid', client_reference_id: 'order-123' } },
   });
   assert.equal(d.action, 'revenue');
   if (d.action === 'revenue') {
@@ -376,7 +376,7 @@ test('Stripe classification: live checkout with an order ref is revenue', () => 
 });
 
 test('Stripe classification: a test-mode completion is never revenue', () => {
-  const d = classifyStripeEvent({ id: 'evt_test_1', type: 'checkout.session.completed', livemode: false, data: { object: { amount_total: 14900 } } });
+  const d = classifyStripeEvent({ id: 'evt_test_1', type: 'checkout.session.completed', livemode: false, data: { object: { amount_total: 14900, currency: 'usd', payment_status: 'paid' } } });
   assert.equal(d.action, 'test');
 });
 
