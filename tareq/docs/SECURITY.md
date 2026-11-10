@@ -42,6 +42,24 @@ path calls `assertCanSpend()` before and `recordSpend()` after, so a run that
 would cross the cap is refused before it costs anything. Raising the cap is an
 approval-gated action.
 
+## Owner controls (`src/lib/security/controls.ts`)
+
+Phase 18 adds a second, finer layer of limits the owner sets from the dashboard,
+persisted in `control_settings` and merged over conservative defaults (an empty
+database is the safest configuration, never the loosest):
+
+- **Cost caps** — per-task ceiling, daily and monthly model-spend windows and a
+  rolling model-call cap. `assertTaskCostAllowed` / `assertModelCallAllowed` are
+  called before a model call in `src/lib/providers/router.ts`, so an over-budget
+  call never happens.
+- **Emergency stop** — the worker loop checks it before every claim
+  (`src/lib/core/orchestrator.ts`), so when engaged no task is even claimed. This
+  is the process-wide kill switch and is distinct from `POST /emergency-stop`,
+  which drops the mode, cancels queued work and revokes sessions.
+- **Permission switches** — `publishingAllowed`, `outreachAllowed`,
+  `marketingAllowed`, `financialOpsAllowed` and a maximum discount, all false by
+  default. `assert*Allowed` gates the matching action point.
+
 ## Prompt-injection defence
 
 - Tool output is validated with zod before use.

@@ -193,6 +193,43 @@
   </section>
 
   <section>
+    <h2 data-i18n="s.supervisor">Supervisor &amp; watchdog</h2>
+    <div class="row" style="margin-bottom:10px">
+      <button id="watchdogBtn" data-i18n="runWatchdog">Run watchdog</button>
+      <span class="muted" id="supervisorSummary" style="font-size:12px"></span>
+    </div>
+    <div class="card"><div id="supervisor"></div></div>
+  </section>
+
+  <section>
+    <h2 data-i18n="s.controls">Autonomy controls &amp; budgets</h2>
+    <div class="card">
+      <div class="grid" id="controlCards"></div>
+      <div class="row" style="margin-top:12px;flex-wrap:wrap;gap:10px">
+        <label class="muted" style="font-size:12px"><span data-i18n="lbl.daily">Daily $</span>
+          <input id="ctlDaily" type="number" min="0" step="0.5" style="width:90px" /></label>
+        <label class="muted" style="font-size:12px"><span data-i18n="lbl.monthly">Monthly $</span>
+          <input id="ctlMonthly" type="number" min="0" step="1" style="width:90px" /></label>
+        <label class="muted" style="font-size:12px"><span data-i18n="lbl.perTask">Per-task $</span>
+          <input id="ctlPerTask" type="number" min="0" step="0.1" style="width:90px" /></label>
+        <label class="muted" style="font-size:12px"><span data-i18n="lbl.adcap">Ad cap $</span>
+          <input id="ctlAdCap" type="number" min="0" step="1" style="width:90px" /></label>
+        <label class="muted" style="font-size:12px"><span data-i18n="lbl.discount">Max discount %</span>
+          <input id="ctlDiscount" type="number" min="0" step="1" style="width:80px" /></label>
+      </div>
+      <div class="row" style="margin-top:10px;flex-wrap:wrap;gap:14px" id="controlToggles"></div>
+      <div class="row" style="margin-top:10px"><button id="saveControlsBtn" data-i18n="save">Save controls</button>
+        <span class="muted" id="controlsMsg" style="font-size:12px"></span></div>
+    </div>
+  </section>
+
+  <section>
+    <h2 data-i18n="s.optimization">Optimization &amp; commercial readiness</h2>
+    <div class="grid" id="optCards"></div>
+    <div class="card" style="margin-top:14px"><div id="readiness"></div></div>
+  </section>
+
+  <section>
     <h2 data-i18n="s.health">System health · audit</h2>
     <div class="grid" id="health"></div>
     <div class="card" style="margin-top:14px"><div id="audit"></div></div>
@@ -224,7 +261,14 @@ T.en = {
   'empty':'No records yet.','test':'TEST DATA','approve':'Approve','reject':'Reject','cancel':'Cancel',
   'confirmStop':'Emergency stop: drop to OBSERVE, cancel queued work and revoke sessions. Continue?',
   'confirmCancel':'Cancel this task?','allClear':'All clear','broken':'BROKEN at ','ok':'OK','failed':'FAILED',
-  'notimpl':'not implemented','score':'Score','buyer':'Buyer','status':'Status','none':'None'
+  'notimpl':'not implemented','score':'Score','buyer':'Buyer','status':'Status','none':'None',
+  's.supervisor':'Supervisor & watchdog','s.controls':'Autonomy controls & budgets','s.optimization':'Optimization & commercial readiness',
+  'runWatchdog':'Run watchdog','save':'Save controls','lbl.daily':'Daily $','lbl.monthly':'Monthly $','lbl.perTask':'Per-task $',
+  'lbl.adcap':'Ad cap $','lbl.discount':'Max discount %','lbl.callsToday':'Model calls today','lbl.util':'Budget used',
+  'lbl.openFindings':'Open findings','lbl.autoResolved':'Auto-resolved','lbl.readiness':'Readiness (verified)',
+  'toggle.publishingAllowed':'Publishing','toggle.outreachAllowed':'Outreach','toggle.marketingAllowed':'Marketing',
+  'toggle.financialOpsAllowed':'Financial ops','toggle.emergencyStop':'Emergency stop','verified':'verified',
+  'controlsSaved':'Saved.','finding':'Finding','severity':'Severity','actionTaken':'Action taken'
 };
 T.ar = {
   'refresh':'تحديث','stop':'إيقاف طارئ','logout':'تسجيل الخروج','loginTitle':'تسجيل دخول المالك',
@@ -247,7 +291,14 @@ T.ar = {
   'empty':'لا توجد سجلات بعد.','test':'بيانات تجريبية','approve':'موافقة','reject':'رفض','cancel':'إلغاء',
   'confirmStop':'إيقاف طارئ: العودة إلى OBSERVE وإلغاء المهام المعلّقة وإبطال الجلسات. متابعة؟',
   'confirmCancel':'إلغاء هذه المهمة؟','allClear':'كل شيء سليم','broken':'مكسور عند ','ok':'سليم','failed':'فشل',
-  'notimpl':'غير مُنفّذ','score':'النتيجة','buyer':'المشتري','status':'الحالة','none':'لا شيء'
+  'notimpl':'غير مُنفّذ','score':'النتيجة','buyer':'المشتري','status':'الحالة','none':'لا شيء',
+  's.supervisor':'المشرف والمراقب','s.controls':'ضوابط الاستقلالية والميزانيات','s.optimization':'التحسين والجاهزية التجارية',
+  'runWatchdog':'تشغيل المراقب','save':'حفظ الضوابط','lbl.daily':'اليومي $','lbl.monthly':'الشهري $','lbl.perTask':'لكل مهمة $',
+  'lbl.adcap':'سقف الإعلانات $','lbl.discount':'أقصى خصم %','lbl.callsToday':'استدعاءات النموذج اليوم','lbl.util':'الميزانية المستخدمة',
+  'lbl.openFindings':'ملاحظات مفتوحة','lbl.autoResolved':'تم حلها تلقائيًا','lbl.readiness':'الجاهزية (موثّقة)',
+  'toggle.publishingAllowed':'النشر','toggle.outreachAllowed':'التواصل','toggle.marketingAllowed':'التسويق',
+  'toggle.financialOpsAllowed':'العمليات المالية','toggle.emergencyStop':'إيقاف طارئ','verified':'موثّق',
+  'controlsSaved':'تم الحفظ.','finding':'ملاحظة','severity':'الخطورة','actionTaken':'الإجراء المتخذ'
 };
 let lang = localStorage.getItem('tareq.lang') || 'en';
 let token = sessionStorage.getItem('tareq.token') || '';
@@ -305,11 +356,12 @@ function card(label, value, sub) {
 }
 
 async function refresh() {
-  const [h, mode, caps, tasks, approvals, fin, audit, leads, usage, errors, config, research, integ, comm, prods, ords] = await Promise.all([
+  const [h, mode, caps, tasks, approvals, fin, audit, leads, usage, errors, config, research, integ, comm, prods, ords, sup, ctl, opt, ready] = await Promise.all([
     api('/health?deep=1'), api('/mode'), api('/capabilities'),
     api('/tasks'), api('/approvals'), api('/finance'), api('/audit'),
     api('/leads'), api('/usage'), api('/errors'), api('/config'), api('/research'), api('/integrations'),
     api('/commercial/overview'), api('/products'), api('/orders'),
+    api('/supervisor'), api('/controls'), api('/optimization'), api('/readiness'),
   ]);
 
   // health dot
@@ -500,6 +552,56 @@ async function refresh() {
       '</td><td>' + money(a.maxCostUsd) + '</td><td>' + (a.enabled ? pill('on', 'ok') : pill('off', 'bad')) + '</td></tr>').join('') +
     '</tbody></table>' +
     '<p class="muted" style="font-size:12px;margin-top:10px">Schedules: ' + (cfg.schedules || []).map((s) => esc(s.name + ' (' + s.cron + ')')).join(', ') + '</p>';
+
+  // supervisor & watchdog (Phase 18)
+  const sf = sup.findings || [];
+  const byStatus = sup.byStatus || {};
+  const openCount = byStatus.OPEN || 0;
+  document.getElementById('supervisorSummary').textContent =
+    t('lbl.openFindings') + ': ' + openCount + '  ·  ' + t('lbl.autoResolved') + ': ' + (byStatus.AUTO_RESOLVED || 0);
+  document.getElementById('supervisor').innerHTML = sf.length === 0 ? '<p class="muted">' + t('allClear') + '</p>' :
+    '<table><thead><tr><th>' + t('finding') + '</th><th>' + t('severity') + '</th><th>' + t('actionTaken') + '</th><th>When</th><th></th></tr></thead><tbody>' +
+    sf.map((f) => '<tr><td>' + esc(f.kind) + (f.subject ? '<div class="muted" style="font-size:11px">' + esc(f.subject) + '</div>' : '') +
+      '</td><td>' + pill(f.severity, f.severity === 'critical' || f.severity === 'error' ? 'bad' : f.severity === 'warn' ? 'warn' : 'info') +
+      '</td><td class="muted" style="font-size:11px">' + esc(f.actionTaken || '—') +
+      '</td><td class="muted">' + esc((f.createdAt || '').slice(0, 19).replace('T', ' ')) +
+      '</td><td><button class="ghost" data-resolve="' + esc(f.id) + '">' + t('approve') + '</button></td></tr>').join('') + '</tbody></table>';
+
+  // autonomy controls (Phase 18)
+  const ctlv = ctl.controls || {};
+  const cu = ctl.usage || {};
+  document.getElementById('ctlDaily').value = ctlv.dailyBudgetUsd;
+  document.getElementById('ctlMonthly').value = ctlv.monthlyBudgetUsd;
+  document.getElementById('ctlPerTask').value = ctlv.perTaskCostCapUsd;
+  document.getElementById('ctlAdCap').value = ctlv.adSpendCapUsd;
+  document.getElementById('ctlDiscount').value = ctlv.maxDiscountPct;
+  const utilPct = ctlv.monthlyBudgetUsd ? Math.min(100, (cu.monthUsd / ctlv.monthlyBudgetUsd) * 100) : 0;
+  document.getElementById('controlCards').innerHTML = [
+    card(t('lbl.daily'), money(cu.todayUsd), t('lbl.monthly') + ': ' + money(cu.monthUsd)),
+    card(t('lbl.callsToday'), cu.callsToday, 'cap: ' + ctlv.modelCallCapPerDay),
+    card(t('lbl.util'), utilPct.toFixed(1) + '%', money(cu.monthUsd) + ' / ' + money(ctlv.monthlyBudgetUsd)),
+    card(t('toggle.emergencyStop'), ctlv.emergencyStop ? 'ON' : 'off', ctlv.emergencyStop ? 'acting work halted' : ''),
+  ].join('');
+  const toggles = [['publishingAllowed'], ['outreachAllowed'], ['marketingAllowed'], ['financialOpsAllowed'], ['emergencyStop']];
+  document.getElementById('controlToggles').innerHTML = toggles.map(([k]) =>
+    '<label class="muted" style="font-size:12px"><input type="checkbox" data-ctl="' + k + '" ' + (ctlv[k] ? 'checked' : '') + ' /> ' + t('toggle.' + k) + '</label>').join('');
+
+  // optimization & readiness (Phase 18)
+  const ov = opt.products || [];
+  document.getElementById('optCards').innerHTML = [
+    card('products', ov.length),
+    card('scale', ov.filter((p) => p.verdict === 'scale').length),
+    card('fix', ov.filter((p) => p.verdict === 'fix').length),
+    card('stop', ov.filter((p) => p.verdict === 'stop').length),
+    card(t('lbl.readiness'), ((ready.verified || 0) + '/' + (ready.total || 0)), ready.complete ? 'complete' : 'incomplete'),
+  ].join('');
+  const ri = ready.items || [];
+  document.getElementById('readiness').innerHTML =
+    (ready.blockers && ready.blockers.length ? '<p class="muted" style="font-size:12px">' + esc(ready.blockers.join(' · ')) + '</p>' : '') +
+    '<table><thead><tr><th>#</th><th>Item</th><th>Status</th><th>Evidence</th></tr></thead><tbody>' +
+    ri.map((i) => '<tr><td>' + i.n + '</td><td>' + esc(i.name) +
+      '</td><td>' + pill(i.verified ? t('verified') : 'unverified', i.verified ? 'ok' : 'warn') +
+      '</td><td class="muted" style="font-size:11px">' + esc(i.evidence || '') + '</td></tr>').join('') + '</tbody></table>';
 }
 
 // --- events ---
@@ -609,6 +711,37 @@ document.getElementById('tasks').onclick = async (ev) => {
   if (!id || !confirm(t('confirmCancel'))) return;
   await api('/tasks/cancel', { method: 'POST', body: JSON.stringify({ id }) });
   await refresh();
+};
+
+// --- Phase 18: supervisor, controls ---
+document.getElementById('watchdogBtn').onclick = async () => {
+  const btn = document.getElementById('watchdogBtn');
+  btn.disabled = true;
+  try { await api('/supervisor/run', { method: 'POST' }); await refresh(); }
+  catch (e) { alert(e.message); }
+  finally { btn.disabled = false; }
+};
+
+document.getElementById('supervisor').onclick = async (ev) => {
+  const id = ev.target.dataset.resolve;
+  if (!id) return;
+  await api('/supervisor/resolve', { method: 'POST', body: JSON.stringify({ id }) });
+  await refresh();
+};
+
+document.getElementById('saveControlsBtn').onclick = async () => {
+  const msg = document.getElementById('controlsMsg');
+  msg.textContent = '';
+  const body = {
+    dailyBudgetUsd: Number(document.getElementById('ctlDaily').value),
+    monthlyBudgetUsd: Number(document.getElementById('ctlMonthly').value),
+    perTaskCostCapUsd: Number(document.getElementById('ctlPerTask').value),
+    adSpendCapUsd: Number(document.getElementById('ctlAdCap').value),
+    maxDiscountPct: Number(document.getElementById('ctlDiscount').value),
+  };
+  document.querySelectorAll('#controlToggles input[data-ctl]').forEach((el) => { body[el.dataset.ctl] = el.checked; });
+  try { await api('/controls', { method: 'POST', body: JSON.stringify(body) }); msg.textContent = t('controlsSaved'); await refresh(); }
+  catch (e) { msg.textContent = 'Error: ' + e.message; }
 };
 
 // --- boot ---

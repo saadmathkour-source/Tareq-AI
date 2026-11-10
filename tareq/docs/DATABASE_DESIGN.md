@@ -5,13 +5,16 @@
 - No SQLite fallback exists. The connection URL is parsed by Prisma from
   `DATABASE_URL`; a missing or invalid URL fails loudly at first query.
 
-## Tables (26)
+## Tables (28)
 
 Identity and control
 - `owners` — the single owner identity (email + password hash).
 - `sessions` — hashed session tokens with expiry.
 - `settings` — key/value config, including the current operating mode.
 - `budgets` — the global spend cap, spend-to-date and warn threshold.
+- `control_settings` — the owner's autonomy and cost controls (daily/monthly
+  budget, per-task cost cap, ad-spend cap, max discount, permission toggles and
+  the emergency stop), read at the point of spend.
 
 Work execution
 - `tasks` — durable queue rows: kind, payload, status, priority, attempts,
@@ -21,6 +24,9 @@ Work execution
 - `schedules` — cron-like recurring triggers.
 - `events` — the durable event bus backlog.
 - `sub_agents` / `sub_agent_runs` — specialised agent definitions and their runs.
+- `watchdog_alerts` — findings raised by the supervisor (stalled task, orphan
+  dependency, dead letter, degraded agent, engaged kill switch), with severity,
+  status, the action taken and the resolution time.
 
 Memory and evidence
 - `memory_records` — working/long-term/market/experiment/strategy/failure memory

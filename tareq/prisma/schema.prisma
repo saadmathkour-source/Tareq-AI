@@ -806,3 +806,43 @@ model DeliveryArtifact {
   @@map("delivery_artifacts")
   @@schema("tareq")
 }
+
+// ===========================================================================
+// PHASE 18 — AUTONOMOUS REVENUE ENGINE (supervisor, safety, controls)
+// ===========================================================================
+
+/// One row per watchdog / supervisor finding. Append-only; the dashboard and
+/// `/supervisor` read the open ones. A finding either auto-remediates (recorded
+/// in `actionTaken`) or requires a human and stays OPEN for escalation.
+model WatchdogAlert {
+  id          String    @id @default(uuid()) @db.Uuid
+  /// STALLED_TASK | DEAD_LETTER | STUCK_APPROVAL | BUDGET_BREACH |
+  /// BUDGET_WINDOW | DUPLICATE_TASK | ORPHAN_DEPENDENCY | STALE_SCHEDULE |
+  /// UNTRUSTED_RESULT | AGENT_DEGRADED | KILL_SWITCH
+  kind        String
+  severity    String    @default("warn") // info | warn | error | critical
+  status      String    @default("OPEN") // OPEN | AUTO_RESOLVED | RESOLVED
+  subject     String? // task id, schedule name, agent name, etc.
+  detail      Json      @default("{}")
+  actionTaken String?   @map("action_taken")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  resolvedAt  DateTime? @map("resolved_at")
+
+  @@index([status, createdAt])
+  @@index([kind])
+  @@map("watchdog_alerts")
+  @@schema("tareq")
+}
+
+/// Owner-editable operational controls (Phase 18). One row per key, JSON value.
+/// Kept separate from `settings` (runtime toggles) so the control surface has a
+/// single, auditable home. Defaults live in code (`src/lib/security/controls.ts`)
+/// and are materialised here on bootstrap; a missing row falls back to defaults.
+model ControlSetting {
+  key       String   @id
+  value     Json     @default("{}")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("control_settings")
+  @@schema("tareq")
+}

@@ -15,6 +15,7 @@ import { ensureBudget } from '../src/lib/security/budget.ts';
 import { seedSubAgents } from '../src/lib/core/subagents.ts';
 import { seedSchedules } from '../src/lib/queue/scheduler.ts';
 import { createPrimaryOwner } from '../src/lib/security/owner-auth.ts';
+import { ensureControls } from '../src/lib/security/controls.ts';
 import { audit } from '../src/lib/core/audit.ts';
 import { seedProducts } from '../src/lib/commercial/products.ts';
 import { generateAllLandings } from '../src/lib/commercial/landing.ts';
@@ -25,6 +26,7 @@ async function main(): Promise<void> {
   await ensureBudget();
   const agents = await seedSubAgents();
   const schedules = await seedSchedules();
+  await ensureControls();
   const products = await seedProducts();
   const landings = await generateAllLandings();
 

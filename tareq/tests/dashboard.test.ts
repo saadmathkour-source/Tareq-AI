@@ -28,7 +28,7 @@ test('dashboard fetches data from the authenticated API, not hardcoded values', 
 });
 
 test('dashboard covers the full operational surface', () => {
-  for (const ep of ['/tasks', '/approvals', '/mode', '/leads', '/usage', '/errors', '/config', '/research', '/health']) {
+  for (const ep of ['/tasks', '/approvals', '/mode', '/leads', '/usage', '/errors', '/config', '/research', '/health', '/supervisor', '/controls', '/optimization', '/readiness']) {
     assert.ok(html.includes(ep), `dashboard references ${ep}`);
   }
 });

@@ -1,6 +1,8 @@
 import { prisma } from '../core/db.ts';
 import { logger } from '../core/logger.ts';
 import { assertCanSpend, recordSpend } from '../security/budget.ts';
+import { assertTaskCostAllowed, assertModelCallAllowed } from '../security/controls.ts';
+import { record as recordLedger } from '../finance/ledger.ts';
 import { routeChat, type ChatMessage, type ChatResult, type ProviderName, priceOf } from './index.ts';
 
 /**
@@ -34,6 +36,10 @@ function estimateCeiling(opts: ThinkOptions): number {
 export async function think(opts: ThinkOptions): Promise<ChatResult> {
   const ceiling = estimateCeiling(opts);
   await assertCanSpend(ceiling, `llm:${opts.purpose}`);
+  // Owner controls: per-task ceiling, daily/monthly windows and the rolling
+  // model-call cap all apply on top of the global hard cap.
+  await assertTaskCostAllowed(ceiling, `llm:${opts.purpose}`);
+  await assertModelCallAllowed();
 
   const messages: ChatMessage[] = opts.system
     ? [{ role: 'system', content: opts.system }, ...opts.messages]
@@ -72,6 +78,17 @@ export async function think(opts: ThinkOptions): Promise<ChatResult> {
         },
       });
       if (cost > 0) await recordSpend(cost, `llm:${opts.purpose}`);
+      // Also record the model spend on the finance ledger as AI_COST, so the
+      // financial report's AI-spend line is real (it was always 0 before). The
+      // budget counter and the ledger are two views of the same fact.
+      if (cost > 0) {
+        await recordLedger({
+          kind: 'AI_COST',
+          amountUsd: cost,
+          provider: result?.provider ?? (opts.provider ?? 'openai'),
+          evidence: { purpose: opts.purpose, model: result?.model ?? 'unknown', taskId: opts.taskId ?? null },
+        });
+      }
     } catch (logErr) {
       logger.error('failed to record provider call', { error: (logErr as Error).message });
     }

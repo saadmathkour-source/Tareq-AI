@@ -7,6 +7,7 @@
  */
 import { logger } from './logger.ts';
 import { ensureBudget } from '../security/budget.ts';
+import { ensureControls } from '../security/controls.ts';
 import { seedSchedules, tickScheduler } from '../queue/scheduler.ts';
 import { registerBuiltinTools } from '../tools/index.ts';
 import { registerAllHandlers } from './handlers.ts';
@@ -14,6 +15,7 @@ import { registeredKinds } from './orchestrator.ts';
 
 export async function bootstrapWorker(): Promise<number> {
   await ensureBudget();
+  await ensureControls();
   await seedSchedules();
   registerBuiltinTools();
   registerAllHandlers();

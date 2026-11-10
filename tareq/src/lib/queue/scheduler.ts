@@ -25,6 +25,12 @@ export const DEFAULT_SCHEDULES: ScheduleSeed[] = [
   // daily financial report. Both are read-mostly and cost nothing to run.
   { name: 'commercial.catalog', cron: '30 5 * * *', taskKind: 'product.seed_catalog', payload: {} },
   { name: 'finance.daily', cron: '45 23 * * *', taskKind: 'finance.daily_report', payload: {} },
+  // Phase 18: the supervisor runs every 10 minutes — it is cheap (only queries
+  // local tables), self-healing, and de-duplicates its own findings, so a short
+  // interval keeps the operation watched without polling any paid API.
+  { name: 'supervisor.watchdog', cron: '*/10 * * * *', taskKind: 'supervisor.watchdog', payload: {} },
+  // Autonomous optimization: once a day, compare realised product margins.
+  { name: 'commercial.optimize', cron: '15 6 * * *', taskKind: 'commercial.optimize', payload: {} },
 ];
 
 export async function seedSchedules(seeds: ScheduleSeed[] = DEFAULT_SCHEDULES): Promise<number> {

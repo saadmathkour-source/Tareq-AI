@@ -383,3 +383,49 @@ set `TAREQ_AUTH_BYPASS=0`; optionally `TAREQ_WORKER_CONCURRENCY=2..4`.
 - To test the fail-closed DB guard manually, run in a directory without `.env`:
   `@prisma/client` auto-loads `.env` on import, so a variable "unset" in the same
   process is silently re-filled from the file.
+
+## Phase 18 — autonomous revenue engine (supervisor, controls, honest AI cost)
+
+- **Supervisor/watchdog:** `tareq/src/lib/core/supervisor.ts`. `runWatchdog()`
+  reclaims stalled `RUNNING` tasks, dead-letters tasks with a missing dependency,
+  blocks tasks whose dependency failed, flags degraded sub-agents and surfaces an
+  engaged kill switch. Findings are de-duplicated (an OPEN finding is not
+  re-created) and self-heals are recorded `AUTO_RESOLVED`. Read via
+  `GET /supervisor`; run/resolve via `POST /supervisor/run`, `/supervisor/resolve`.
+- **Owner controls:** `tareq/src/lib/security/controls.ts`, persisted in
+  `control_settings` (one row per key). Defaults are conservative and an empty DB
+  is the safest config. `assertTaskCostAllowed` / `assertModelCallAllowed` run
+  before every model call in `providers/router.ts`; `assertNotStopped` gates the
+  loop. `GET/POST /controls`.
+- **Emergency stop is a real halt:** `src/lib/core/orchestrator.ts` checks the
+  stop *before every claim*, so when engaged `tick()` claims nothing. Proven by
+  `tests/supervisor.test.ts` ("the kill switch stops the worker loop from
+  claiming any task"). This is separate from `POST /emergency-stop`, which drops
+  the mode, cancels queued work and revokes sessions.
+- **Honest AI cost:** every model call is written to the ledger as `AI_COST`, so
+  the finance report's AI-spend line is no longer `0`. The report also exposes
+  `acquisition` (CAC), `cashFlow`, `obligations` and `budget` windows. A marketing
+  cost is an operating cost / CAC input — **never revenue**.
+- **Schema (additive only):** `watchdog_alerts` and `control_settings` (+ indexes).
+  Verified via `prisma migrate diff` (only CREATE, no drops/column changes).
+- **Capability matrix:** `tareq/scripts/gen-matrix.ts` regenerates
+  `tareq/docs/CAPABILITY_VERIFICATION_MATRIX.md` from
+  `tareq/src/lib/capabilities/index.ts` (single source of truth, 100 rows). Run
+  it after editing capabilities, don't hand-edit the matrix.
+- **Tests:** full suite is 264/264 green with `TAREQ_USE_TEST_DB=1`. Run it with
+  no API/worker running (`TAREQ_EMBEDDED_WORKER=0`) so queue tests are not raced.
+
+## GitHub push status (verified 2026-11-10)
+
+- The injected `GITHUB_TOKEN` is a **fine-grained token with no write scope**:
+  it reads the repo (`gh api repos/...` returns `permissions.push: true`, because
+  that reflects the *account* role) but every write is rejected with
+  `403 Resource not accessible by integration`. `git push` fails with
+  `403 Permission ... denied`.
+- `OH_GIT_CREDENTIAL_ACCESS_TOKEN_GITHUB` is **not** a usable GitHub token
+  (`401 Bad credentials`).
+- So commits can be created locally but **cannot be pushed** from this
+  environment. Owner action: give the token `Contents: Read and write`
+  (GitHub → Settings → Developer settings → Fine-grained tokens → Repository
+  permissions → Contents), or push from a machine with a working credential.
+  This is a scope issue, not a code issue.

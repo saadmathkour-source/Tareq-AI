@@ -2,6 +2,65 @@
 
 Reverse-chronological. Every entry records what was actually run and observed.
 
+## Phase 18 — autonomous revenue engine (reliability, controls, honest AI cost)
+
+### The gap this closed
+Model spend was recorded to the budget counter and `provider_calls` but **never
+written to the ledger**, so the financial report's AI-spend line was always `0`.
+Phase 18 records every model call as an `AI_COST` ledger entry and enforces the
+owner's cost and autonomy limits at the point of spend.
+
+### What is now enforced (not just displayed)
+- `src/lib/security/controls.ts` — owner controls persisted in `control_settings`
+  (`ensureControls` seeds defaults once). `assertTaskCostAllowed` refuses a task
+  whose ceiling exceeds the per-task cap, and blocks everything when the
+  emergency stop is engaged or a daily/monthly budget window is exhausted.
+- `src/lib/providers/router.ts` — before a model call: the per-task cost ceiling
+  and the model-call cap are checked; after: the spend is written to the ledger as
+  `AI_COST` and the window usage is incremented. An over-budget call never
+  happens.
+- `src/lib/core/orchestrator.ts` — the worker loop checks the emergency stop
+  before every claim, so when it is engaged no task is even claimed. This makes
+  the kill switch a real halt of all work, not only a flag the dashboard shows.
+- `src/lib/core/supervisor.ts` — the watchdog reclaims `RUNNING` tasks whose
+  heartbeat went stale (crash recovery), dead-letters tasks with a missing
+  dependency, flags redundant pending tasks, blocks tasks whose dependency
+  failed, flags a degraded sub-agent and surfaces an engaged kill switch. Each
+  finding is recorded once (open findings are not duplicated across runs);
+  self-healing findings are recorded as `AUTO_RESOLVED`.
+- `src/lib/commercial/optimization.ts` — pure engines: `agentReliability`,
+  `dependencyIntegrity`, `duplicateSuppression`, `allocateResources`,
+  `optimizationReport` (scale/fix/stop/hold by realised margin),
+  `commercialReadiness` and `budgetWindows`.
+
+### Finance report extensions
+`FinancialReport` now carries `acquisition` (leads, buyers, marketing spend,
+CAC), `cashFlow`, `obligations` (pending, refunds, disputes), and `budget`
+(daily/monthly windows + model-call cap). A marketing cost is an operating cost
+and CAC input — never revenue.
+
+### Schema (additive only; pushed to production)
+- New tables `control_settings` and `watchdog_alerts` (+2 indexes).
+- `prisma migrate diff` showed only `CREATE TABLE` / `CREATE INDEX` — no drops or
+  column changes. Applied with `prisma db push` over the direct (5432) URL.
+
+### API
+- `GET /supervisor`, `POST /supervisor/run`, `POST /supervisor/resolve`
+- `GET /controls`, `POST /controls`
+- `GET /optimization`, `GET /readiness`
+
+### Dashboard
+- Three new sections: Supervisor & watchdog (run + resolve findings), Autonomy
+  controls & budgets (edit caps, toggle permissions, live usage), and
+  Optimization & commercial readiness. EN + AR strings added.
+
+### Tests
+- New `tests/optimization.test.ts` (12 cases, pure), `tests/supervisor.test.ts`
+  (10 cases, real DB — crash recovery, orphan dead-letter, finding de-dup, kill
+  switch halting the worker loop, per-task cap) and `tests/phase18-finance.test.ts`
+  (3 cases — AI cost reaches the report, marketing is CAC not revenue).
+  `tests/dashboard.test.ts` extended to require the new endpoints.
+
 ## Phase 17 — public checkout & real customer delivery
 
 ### What a real buyer can now do

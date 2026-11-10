@@ -30,7 +30,7 @@ const REAL_WORLD: Record<number, string> = {
   10: 'Proof ladder advanced stated_interest -> budget_acknowledged in acceptance.',
   11: '23 real candidate leads discovered from public HN comments and persisted (dedupe proven).',
   12: 'Stress test + competitor predictor run in unit tests; used in acceptance risk step.',
-  13: 'Process productisation runs; sandboxed code execution is not implemented.',
+  13: 'Sandboxed execution is implemented (in-process V8 context, static host-power screen, wall-clock timeout, JSON-only output, artifact persistence). Isolation is in-process, not OS-level containers.',
   14: 'productize()/designPov() produced a deliverable spec in acceptance.',
   15: 'Outreach drafted, approval-gated, never sent; follow-up plan generated for a real lead.',
   16: 'Stage gates blocked an unsupported OUTREACH advance (16 stage events recorded).',
@@ -44,7 +44,7 @@ const REAL_WORLD: Record<number, string> = {
   24: '/health?deep=1 reported database + both providers healthy.',
   25: 'Audit chain verified ok=true after a full 16-stage run.',
   26: 'Dashboard served; all 16 required panels render from authenticated endpoints.',
-  27: 'Telegram connector present and probed; email/CRM connectors not implemented.',
+  27: 'Telegram/Gmail/HubSpot/Stripe adapters implemented and unit-tested; each reports honest configured/unconfigured status. Live Gmail/HubSpot connection is blocked on owner OAuth/token, not on code.',
   28: 'Approval created, decided and audited via the API and dashboard.',
   29: 'buildGenomeGraph() exercised in unit tests; genome persisted on opportunities.',
   30: 'scoreIntent() bounded (<1) and used for real leads.',
@@ -59,7 +59,7 @@ const REAL_WORLD: Record<number, string> = {
   39: 'revivalCandidates() selects dormant deals (unit test).',
   40: 'oneClickCashPath() requires owner approval (unit test).',
   41: 'forgeMicroOffer() honours target margin (unit test + acceptance).',
-  42: 'trustAssets() returns real, non-fabricated assets. Not yet referenced by any test — status downgraded to IMPLEMENTED_NOT_VERIFIED until a test or live run covers it.',
+  42: 'assessTrust()/trustAssets() return real, non-fabricated assets; covered by tests/trust-transfer.test.ts.',
   43: 'shieldLeads() blocks opt-outs and flags conflicts (unit test).',
   44: 'detectAnomalies() flags outliers (unit test).',
   45: 'fusePainClusters() fuses similar pains (unit test).',
@@ -146,10 +146,11 @@ const summary = `
 
 - Total groups: ${CAPABILITIES.length}
 - VERIFIED_FUNCTIONAL: ${CAPABILITIES.filter((c) => c.status === 'VERIFIED_FUNCTIONAL').length}
-- IMPLEMENTED_NOT_VERIFIED: ${CAPABILITIES.filter((c) => c.status === 'IMPLEMENTED_NOT_VERIFIED').length} (42 trust-transfer — code + test exist, not yet exercised in a live commercial run)
-- PARTIAL: ${CAPABILITIES.filter((c) => c.status === 'PARTIAL').length} (13 product building — sandboxed code execution; 27 integrations — Gmail/HubSpot connectors await owner OAuth)
+- IMPLEMENTED_NOT_VERIFIED: ${CAPABILITIES.filter((c) => c.status === 'IMPLEMENTED_NOT_VERIFIED').length}
+- PARTIAL: ${CAPABILITIES.filter((c) => c.status === 'PARTIAL').length}
 - BLOCKED_EXTERNAL_DEPENDENCY: ${CAPABILITIES.filter((c) => c.status === 'BLOCKED_EXTERNAL_DEPENDENCY').length}
 - NOT_IMPLEMENTED: ${CAPABILITIES.filter((c) => c.status === 'NOT_IMPLEMENTED').length}
+${CAPABILITIES.filter((c) => c.status !== 'VERIFIED_FUNCTIONAL').map((c) => `- Non-verified: ${c.n} ${c.name} — ${c.description}`).join('\n') || '- Every group is VERIFIED_FUNCTIONAL.'}
 
 Every group has a unique id from 1 to 100 with no omissions or duplicates.
 `;

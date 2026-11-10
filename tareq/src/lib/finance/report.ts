@@ -1,5 +1,7 @@
 import { prisma } from '../core/db.ts';
-import { summary as ledgerSummary, type FinancialSummary } from './ledger.ts';
+import { summary as ledgerSummary, acquisitionMetrics, type FinancialSummary } from './ledger.ts';
+import { budgetWindows, type WindowStatus } from '../commercial/optimization.ts';
+import { windowUsage, getControls } from '../security/controls.ts';
 
 /**
  * Financial intelligence (Phase 16, group 8).
@@ -25,6 +27,12 @@ export interface FinancialReport {
   ordersByStatus: Record<string, number>;
   aiSpendUsd: number;
   deliveryCostUsd: number;
+  /** Customer-acquisition cost from real marketing spend and lead counts. */
+  acquisition: { leads: number; marketingSpendUsd: number; cacUsd: number | null };
+  /** Owner budget windows: is the agent inside the limits it was given? */
+  budget: WindowStatus;
+  /** Money owed or at risk: pending payments, refunds and open disputes. */
+  obligations: { pendingUsd: number; refundsUsd: number; disputesUsd: number };
   note: string;
 }
 
@@ -55,6 +63,17 @@ export async function financialReport(label: 'daily' | 'monthly' | 'all' = 'all'
   });
   const deliveredMap = new Map(deliveredByProduct.map((d) => [d.productId, d._count._all]));
 
+  // Phase 18 additions, run sequentially to stay within the pooled connection
+  // limit (AGENTS.md: avoid Promise.all over several Prisma queries).
+  const acquisition = await acquisitionMetrics();
+  const usage = await windowUsage();
+  const controls = await getControls();
+  const obligations = {
+    pendingUsd: summary.outstandingUsd,
+    refundsUsd: summary.byKind['REFUND'] ?? 0,
+    disputesUsd: summary.byKind['DISPUTE'] ?? 0,
+  };
+
   return {
     period: { from: from.toISOString(), to: new Date().toISOString(), label },
     summary,
@@ -69,6 +88,16 @@ export async function financialReport(label: 'daily' | 'monthly' | 'all' = 'all'
     ordersByStatus,
     aiSpendUsd: Number(aiAgg._sum.amountUsd ?? 0),
     deliveryCostUsd: Number(deliveryAgg._sum.amountUsd ?? 0),
+    acquisition: { leads: acquisition.leads, marketingSpendUsd: acquisition.costUsd, cacUsd: acquisition.cacUsd },
+    budget: budgetWindows({
+      todayUsd: usage.todayUsd,
+      dailyCapUsd: controls.dailyBudgetUsd,
+      monthUsd: usage.monthUsd,
+      monthlyCapUsd: controls.monthlyBudgetUsd,
+      callsToday: usage.callsToday,
+      callCapPerDay: controls.modelCallCapPerDay,
+    }),
+    obligations,
     note:
       'Collected revenue counts only signature-verified Stripe payments. Pending, failed, refunded and ' +
       'test-mode transactions are excluded by the ledger. Costs are recorded as they occur.',

@@ -25,6 +25,8 @@ import { seedProducts } from '../commercial/products.ts';
 import { generateLanding, generateAllLandings } from '../commercial/landing.ts';
 import { deliverOrder } from '../commercial/delivery.ts';
 import { financialReport } from '../finance/report.ts';
+import { runWatchdog } from './supervisor.ts';
+import { optimizationReport, allocateResources, type ProductPerformance, type ModelProfile } from '../commercial/optimization.ts';
 
 /** Extract a strict JSON object from a model reply, or null. */
 function tryJson<T>(text: string): T | null {
@@ -419,5 +421,55 @@ function registerAll(): void {
       confidence: 1,
     });
     return { grossUsd: report.summary.grossRevenueUsd, netProfitUsd: report.summary.netProfitUsd };
+  });
+
+  // --- supervisor & watchdog (Phase 18, sections 9-10) ----------------------
+  registerHandler('supervisor.watchdog', async () => {
+    const report = await runWatchdog();
+    return { findings: report.findings.length, autoResolved: report.autoResolved, requiresHuman: report.requiresHuman };
+  });
+
+  // --- autonomous optimization (Phase 18, section 8) ------------------------
+  // Compares realised product margin, records the recommendations as strategy
+  // memory, and reports what needs owner approval. It does not change prices.
+  registerHandler('commercial.optimize', async () => {
+    const products = await prisma.product.findMany({ include: { _count: { select: { orders: true } } } });
+    const perf: ProductPerformance[] = [];
+    for (const p of products) {
+      const orders = await prisma.order.findMany({
+        where: { productId: p.id, status: 'DELIVERED' },
+        select: { amountUsd: true },
+      });
+      const revenueUsd = orders.reduce((a, o) => a + Number(o.amountUsd), 0);
+      perf.push({
+        slug: p.slug,
+        name: p.name,
+        priceUsd: Number(p.priceUsd),
+        unitCostUsd: Number(p.costUsd),
+        orders: p._count.orders,
+        revenueUsd,
+        costUsd: Number(p.costUsd) * orders.length,
+      });
+    }
+    const report = optimizationReport(perf);
+    await remember({
+      kind: 'STRATEGY',
+      key: `optimize:${new Date().toISOString().slice(0, 10)}`,
+      content: JSON.stringify({ actions: report.actions, requiresOwnerApproval: report.requiresOwnerApproval }),
+      source: 'system',
+      epistemic: 'fact',
+      confidence: 1,
+    });
+    return { products: report.products.length, actions: report.actions.length, requiresOwnerApproval: report.requiresOwnerApproval };
+  });
+
+  // --- resource allocation preview (cheapest fit-for-quality model) ---------
+  registerHandler('commercial.allocate', async (task) => {
+    const kind = String(task.payload['kind'] ?? 'research');
+    const requiredQuality = Number(task.payload['requiredQuality'] ?? 0.6);
+    const tokens = Number(task.payload['tokens'] ?? 2000);
+    const models = (task.payload['models'] as ModelProfile[]) ?? [];
+    const allocation = allocateResources({ kind, requiredQuality, tokens }, models);
+    return { ...allocation };
   });
 }

@@ -38,6 +38,9 @@ import { createPublicCheckout, getPublicOrderStatus } from '../lib/commercial/ch
 import { rateLimit } from '../lib/security/rate-limit.ts';
 import { publicBaseUrl } from '../lib/commercial/delivery.ts';
 import { commercialOverview } from '../lib/commercial/overview.ts';
+import { getControls, setControls, windowUsage, DEFAULT_CONTROLS, type Controls } from '../lib/security/controls.ts';
+import { openFindings, resolveFinding, runWatchdog } from '../lib/core/supervisor.ts';
+import { optimizationReport, commercialReadiness, type ProductPerformance } from '../lib/commercial/optimization.ts';
 import { run } from '../lib/core/orchestrator.ts';
 import { bootstrapWorker } from '../lib/core/worker-boot.ts';
 import { startScheduler } from '../lib/queue/scheduler.ts';
@@ -405,15 +408,23 @@ route('GET', '/audit', true, async (_req, res) => {
 });
 
 route('POST', '/emergency-stop', true, async (_req, res, owner) => {
-  // Drop to the safest mode, cancel queued work and revoke sessions.
+  // Drop to the safest mode, engage the control-layer kill switch, cancel
+  // queued work and revoke sessions.
   await setMode('OBSERVE', owner!.id);
+  await setControls({ emergencyStop: true }, owner!.id);
   const cancelled = await prisma.task.updateMany({
     where: { status: { in: ['PENDING', 'QUEUED', 'RETRYING'] } },
     data: { status: 'CANCELLED', error: 'emergency stop', finishedAt: new Date() },
   });
   await revokeAllSessions(owner!.id);
   await audit({ actorType: 'owner', actorId: owner!.id, action: 'emergency_stop', severity: 'critical', metadata: { cancelled: cancelled.count } });
-  json(res, 200, { ok: true, mode: 'OBSERVE', cancelled: cancelled.count });
+  json(res, 200, { ok: true, mode: 'OBSERVE', emergencyStop: true, cancelled: cancelled.count });
+});
+
+/** Clear the kill switch (owner action). Mode stays OBSERVE until set separately. */
+route('POST', '/resume', true, async (_req, res, owner) => {
+  const controls = await setControls({ emergencyStop: false }, owner!.id);
+  json(res, 200, { ok: true, emergencyStop: controls.emergencyStop });
 });
 
 route('POST', '/plan', true, async (_req, res, _owner, body) => {
@@ -467,6 +478,99 @@ route('POST', '/payments/link', true, async (_req, res, owner, body) => {
 
 route('GET', '/commercial/overview', true, async (_req, res) => {
   json(res, 200, await commercialOverview());
+});
+
+// --- Phase 18: supervisor, controls, optimization, readiness ----------------
+
+/** Supervisor findings (open) + a summary, for the dashboard. */
+route('GET', '/supervisor', true, async (_req, res) => {
+  const [findings, counts] = await Promise.all([
+    openFindings(100),
+    prisma.watchdogAlert.groupBy({ by: ['status'], _count: { _all: true } }),
+  ]);
+  const byStatus: Record<string, number> = {};
+  for (const c of counts) byStatus[c.status] = c._count._all;
+  json(res, 200, { findings, byStatus });
+});
+
+/** Run the watchdog on demand (owner-triggered). */
+route('POST', '/supervisor/run', true, async (_req, res, owner) => {
+  const report = await runWatchdog();
+  await audit({ actorType: 'owner', actorId: owner?.id, action: 'supervisor.run', severity: 'info', metadata: { findings: report.findings.length } });
+  json(res, 200, { ok: true, ...report });
+});
+
+route('POST', '/supervisor/resolve', true, async (_req, res, owner, body) => {
+  const id = String(body['id'] ?? '');
+  if (!id) return json(res, 400, { error: 'id is required' });
+  const ok = await resolveFinding(id, owner!.id);
+  json(res, ok ? 200 : 404, ok ? { ok: true } : { error: 'finding not found or already resolved' });
+});
+
+/** Owner operational controls (budget windows, ad spend, discounts, kill switch). */
+route('GET', '/controls', true, async (_req, res) => {
+  const [controls, usage] = await Promise.all([getControls(), windowUsage()]);
+  json(res, 200, { controls, usage, defaults: DEFAULT_CONTROLS });
+});
+
+route('POST', '/controls', true, async (_req, res, owner, body) => {
+  try {
+    const controls = await setControls(body as Partial<Controls>, owner!.id);
+    json(res, 200, { ok: true, controls });
+  } catch (err) {
+    json(res, 400, { error: (err as Error).message });
+  }
+});
+
+/** Autonomous optimization: realised margin per product and recommendations. */
+route('GET', '/optimization', true, async (_req, res) => {
+  const products = await prisma.product.findMany({ include: { _count: { select: { orders: true } } } });
+  const perf: ProductPerformance[] = [];
+  for (const p of products) {
+    const orders = await prisma.order.findMany({ where: { productId: p.id, status: 'DELIVERED' }, select: { amountUsd: true } });
+    perf.push({
+      slug: p.slug,
+      name: p.name,
+      priceUsd: Number(p.priceUsd),
+      unitCostUsd: Number(p.costUsd),
+      orders: p._count.orders,
+      revenueUsd: orders.reduce((a, o) => a + Number(o.amountUsd), 0),
+      costUsd: Number(p.costUsd) * orders.length,
+    });
+  }
+  json(res, 200, optimizationReport(perf));
+});
+
+/**
+ * Commercial readiness (Phase 18, section 12). Each item is backed by a real
+ * database artefact, never by "the tests pass". An item with no artefact is
+ * reported unverified, and any external blocker is surfaced verbatim.
+ */
+route('GET', '/readiness', true, async (_req, res) => {
+  const verifiedClaims = await prisma.claim.count({ where: { publishable: true, verifiedAt: { not: null } } });
+  const publishedProducts = await prisma.product.count({ where: { status: 'PUBLISHED' } });
+  const leads = await prisma.lead.count();
+  const approvedOutreach = await prisma.approval.count({ where: { action: 'outreach.send', status: 'APPROVED' } });
+  const orders = await prisma.order.count();
+  const delivered = await prisma.order.count({ where: { status: 'DELIVERED' } });
+  const confirmed = await prisma.ledgerEntry.findMany({ where: { kind: 'REVENUE_CONFIRMED', verifiedAt: { not: null } }, select: { externalId: true, amountUsd: true } });
+  const liveRevenue = confirmed.filter((r) => !String(r.externalId ?? '').includes('_test_'));
+  const liveRevenueUsd = liveRevenue.reduce((a, r) => a + Number(r.amountUsd), 0);
+  const report = await financialReport('all');
+
+  const items = [
+    { n: 1, name: 'discover a real opportunity with cited sources', verified: verifiedClaims > 0, evidence: `${verifiedClaims} verified claim(s)`, blockedBy: verifiedClaims > 0 ? undefined : 'needs a mission run that records evidence' },
+    { n: 2, name: 'build a real sellable offer', verified: publishedProducts > 0, evidence: `${publishedProducts} published product(s)` },
+    { n: 3, name: 'publish the product', verified: publishedProducts > 0, evidence: `${publishedProducts} published product(s)` },
+    { n: 4, name: 'find a suitable prospect', verified: leads > 0, evidence: `${leads} lead(s)` },
+    { n: 5, name: 'run a permitted marketing action', verified: approvedOutreach > 0, evidence: `${approvedOutreach} approved outreach approval(s)`, blockedBy: approvedOutreach > 0 ? undefined : 'outreach.send needs an owner approval and an email connector' },
+    { n: 6, name: 'record a real response when it happens', verified: false, evidence: 'no response recorded yet', blockedBy: 'requires a live outreach channel' },
+    { n: 7, name: 'create a purchase order', verified: orders > 0, evidence: `${orders} order(s)` },
+    { n: 8, name: 'receive a real LIVE payment', verified: liveRevenue.length > 0, evidence: `${liveRevenue.length} confirmed live payment(s), $${liveRevenueUsd.toFixed(2)}`, blockedBy: liveRevenue.length > 0 ? undefined : 'no live payment received yet' },
+    { n: 9, name: 'fulfil and deliver the order', verified: delivered > 0, evidence: `${delivered} delivered order(s)`, blockedBy: delivered > 0 ? undefined : 'no order delivered yet' },
+    { n: 10, name: 'compute profit after costs', verified: liveRevenue.length > 0, evidence: `net profit $${report.summary.netProfitUsd.toFixed(2)} over $${report.summary.grossRevenueUsd.toFixed(2)} collected`, blockedBy: liveRevenue.length > 0 ? undefined : 'no collected revenue to compute profit on' },
+  ];
+  json(res, 200, commercialReadiness(items));
 });
 
 route('GET', '/finance/report', true, async (req, res) => {
