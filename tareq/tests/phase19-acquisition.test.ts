@@ -111,6 +111,29 @@ test('an inbound inquiry is answered from verified product data and not emailed 
   }
 });
 
+test('an answered but undelivered inquiry can retry delivery without regenerating its answer', async () => {
+  const before = await getControls();
+  await setControls({ outreachAllowed: false }, 'test');
+  const storedAnswer = 'Previously prepared reply from verified product data.';
+  const { id } = await createInquiry({ email: 'retry@example.com', message: 'Please answer my question.' });
+  try {
+    await prisma.inquiry.update({
+      where: { id },
+      data: { status: 'ANSWERED', answer: storedAnswer, answeredAt: new Date() },
+    });
+
+    const result = await answerInquiry(id);
+    const row = await prisma.inquiry.findUnique({ where: { id } });
+    assert.equal(result.answered, true);
+    assert.equal(result.sent, false, 'retry remains gated while owner email permission is off');
+    assert.equal(row?.answer, storedAnswer, 'retry reuses the existing answer');
+    assert.equal(row?.replySentAt, null, 'a blocked retry is not recorded as sent');
+  } finally {
+    await prisma.inquiry.delete({ where: { id } });
+    await setControls({ outreachAllowed: before.outreachAllowed }, 'test');
+  }
+});
+
 test('the new acquisition handlers are registered', () => {
   registerAllHandlers();
   const kinds = new Set(registeredKinds());
