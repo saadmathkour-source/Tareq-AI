@@ -3,11 +3,14 @@ import assert from 'node:assert/strict';
 import { CAPABILITIES, summary, getCapability, type CapStatus } from '../src/lib/capabilities/index.ts';
 
 const VALID: CapStatus[] = [
-  'VERIFIED_FUNCTIONAL',
+  'VERIFIED_PRODUCTION',
   'IMPLEMENTED_NOT_VERIFIED',
   'PARTIAL',
+  'UI_ONLY',
+  'BACKEND_ONLY',
+  'BLOCKED_BY_CONFIG',
   'NOT_IMPLEMENTED',
-  'BLOCKED_EXTERNAL_DEPENDENCY',
+  'DEPRECATED_OR_DUPLICATE',
 ];
 
 test('capability index has exactly 100 groups with unique ids 1..100', () => {
@@ -27,12 +30,25 @@ test('every capability carries a description and at least one evidence reference
   }
 });
 
-test('nothing is VERIFIED_FUNCTIONAL without a concrete evidence reference', () => {
+test('nothing is VERIFIED_PRODUCTION without a concrete evidence reference', () => {
   for (const c of CAPABILITIES) {
-    if (c.status === 'VERIFIED_FUNCTIONAL') {
+    if (c.status === 'VERIFIED_PRODUCTION') {
       assert.ok((c.evidence ?? []).length >= 1, `verified cap ${c.n} must name evidence`);
     }
   }
+});
+
+test('current registry does not promote source-only evidence to production status', () => {
+  assert.deepEqual(summary(), {
+    VERIFIED_PRODUCTION: 0,
+    IMPLEMENTED_NOT_VERIFIED: 19,
+    PARTIAL: 9,
+    UI_ONLY: 0,
+    BACKEND_ONLY: 72,
+    BLOCKED_BY_CONFIG: 0,
+    NOT_IMPLEMENTED: 0,
+    DEPRECATED_OR_DUPLICATE: 0,
+  });
 });
 
 test('summary counts add up to 100 and match the index', () => {

@@ -53,6 +53,7 @@
   .bar > i { display: block; height: 100%; background: var(--accent); }
   .bar.warn > i { background: var(--warn); }
   .bar.bad > i { background: var(--danger); }
+  .article-preview { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; background: var(--panel-2); border-radius: 7px; padding: 10px; font: 12px/1.5 ui-monospace, monospace; }
 </style>
 </head>
 <body>
@@ -140,6 +141,22 @@
       <h3 data-i18n="lbl.orders">Orders</h3>
       <div id="orders"></div>
     </div>
+    <div class="card" style="margin-top:14px">
+      <h3 data-i18n="lbl.inquiries">Customer inquiries</h3>
+      <p class="muted" style="font-size:12px" data-i18n="inquiriesHint">Answers use verified product data. Processing a new inquiry may email the requester only when owner permission and a configured provider both allow it.</p>
+      <p class="err" id="inquiryMessage" aria-live="polite"></p>
+      <div id="inquiries"></div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h3 data-i18n="lbl.content">Organic content</h3>
+      <p class="muted" style="font-size:12px" data-i18n="contentHint">Drafting may use configured model quota. Publishing is always checked by the server against the content permission, source QA and emergency stop.</p>
+      <div class="row" style="margin:10px 0">
+        <input id="contentTopic" maxlength="180" placeholder="Research topic to draft…" style="max-width:420px" />
+        <button id="contentDraftBtn" data-i18n="draftArticle">Draft sourced article</button>
+      </div>
+      <p class="err" id="contentMessage" aria-live="polite"></p>
+      <div id="content"></div>
+    </div>
   </section>
 
   <section>
@@ -150,11 +167,14 @@
         <input id="capSearch" placeholder="Search capabilities…" style="max-width:240px" />
         <select id="capFilter" style="width:auto">
           <option value="ALL">All statuses</option>
-          <option value="VERIFIED_FUNCTIONAL">VERIFIED_FUNCTIONAL</option>
+          <option value="VERIFIED_PRODUCTION">VERIFIED_PRODUCTION</option>
           <option value="IMPLEMENTED_NOT_VERIFIED">IMPLEMENTED_NOT_VERIFIED</option>
           <option value="PARTIAL">PARTIAL</option>
-          <option value="BLOCKED_EXTERNAL_DEPENDENCY">BLOCKED_EXTERNAL_DEPENDENCY</option>
+          <option value="UI_ONLY">UI_ONLY</option>
+          <option value="BACKEND_ONLY">BACKEND_ONLY</option>
+          <option value="BLOCKED_BY_CONFIG">BLOCKED_BY_CONFIG</option>
           <option value="NOT_IMPLEMENTED">NOT_IMPLEMENTED</option>
+          <option value="DEPRECATED_OR_DUPLICATE">DEPRECATED_OR_DUPLICATE</option>
         </select>
       </div>
       <div id="caps"></div>
@@ -248,12 +268,16 @@ T.en = {
   's.integrations':'Integrations','s.leads':'Leads & customers','s.research':'Research & opportunity reports','s.usage':'API usage & cost','s.errors':'Errors','s.config':'Agent configuration',
   's.health':'System health · audit','lbl.mode':'Operating mode','apply':'Apply','plan':'Plan','mission':'Run mission',
   's.commercial':'Commercial operation — products · orders · deliveries','lbl.products':'Products','lbl.orders':'Orders',
+  'lbl.inquiries':'Customer inquiries','inquiriesHint':'Answers use verified product data. Processing a new inquiry may email the requester only when owner permission and a configured provider both allow it.','noInquiries':'No customer inquiries yet.','answerInquiry':'Prepare answer','inquiryStatus':'Inquiry status','inquiryMessageLabel':'Question','inquiryAnswerLabel':'Prepared answer','inquiryDelivery':'Email delivery','replySent':'Sent','replyNotSent':'Not sent','confirmAnswerInquiry':'Prepare an answer from verified product information? This may email the requester only if owner permission and email configuration allow it.','inquiryAnswered':'Inquiry processed. Email sent: ',
+  'lbl.content':'Organic content','contentHint':'Drafting may use configured model quota. Publishing is always checked by the server against the content permission, source QA and emergency stop.',
+  'draftArticle':'Draft sourced article','contentTopicPlaceholder':'Research topic to draft…','noArticles':'No drafts or published articles yet.','publishArticle':'Publish article','reviewArticle':'Review content and sources','publishedArticle':'Published','confirmArticlePublish':'Publish this source-cited article on the public TAREQ site?','draftingArticle':'Drafting from public sources…','articleDrafted':'Draft created: ','articlePublished':'Published: ',
+  'lbl.sources':'sources','topicRequired':'Enter a topic of at least 3 characters.',
   'lbl.published':'Published products','lbl.delivered':'Delivered','lbl.qualified':'Qualified leads','lbl.awaiting':'Awaiting approval',
   'seedProducts':'Seed catalog','view':'View','buyLink':'Create checkout','margin':'Margin','price':'Price','orders':'Orders',
   'deliverables':'Deliverables','orderStatus':'Status','customer':'Customer','amount':'Amount','artifact':'Artifact',
   'modeHint':'OBSERVE forbids all acting tools. Sensitive actions (spend, outreach, publish) always need approval, in every mode.',
   'lbl.budget':'Budget','lbl.mode2':'Mode','lbl.tasks':'Tasks','lbl.approvals':'Pending approvals',
-  'lbl.caps':'Capabilities implemented','lbl.chain':'Audit chain','lbl.revenue':'Collected revenue',
+  'lbl.caps':'Production-verified capabilities','lbl.chain':'Audit chain','lbl.revenue':'Collected revenue',
   'lbl.expenses':'Expenses','lbl.profit':'Net profit','lbl.leads':'Leads','lbl.deals':'Deals',
   'lbl.calls':'API calls','lbl.apicost':'API cost','lbl.buyers':'Buyers','lbl.drafts':'Outreach drafts',
   'lbl.dead':'Dead letters','lbl.failed':'Failed tasks','lbl.perr':'Provider errors',
@@ -278,12 +302,15 @@ T.ar = {
   's.integrations':'التكاملات','s.leads':'العملاء المحتملون والعملاء','s.research':'تقارير البحث والفرص','s.usage':'استخدام واجهات الذكاء الاصطناعي والتكلفة','s.errors':'الأخطاء','s.config':'إعداد الوكيل',
   's.health':'صحة النظام · التدقيق','lbl.mode':'وضع التشغيل','apply':'تطبيق','plan':'تخطيط','mission':'تشغيل مهمة',
   's.commercial':'العمل التجاري — المنتجات · الطلبات · التسليم','lbl.products':'المنتجات','lbl.orders':'الطلبات',
+  'lbl.inquiries':'استفسارات العملاء','inquiriesHint':'تُبنى الإجابات على بيانات المنتج الموثقة. قد يؤدي تجهيز إجابة لاستفسار جديد إلى مراسلة صاحبه فقط عند تفعيل إذن المالك وإعداد مزود البريد معاً.','noInquiries':'لا توجد استفسارات عملاء بعد.','answerInquiry':'تجهيز الإجابة','inquiryStatus':'حالة الاستفسار','inquiryMessageLabel':'السؤال','inquiryAnswerLabel':'الإجابة المجهزة','inquiryDelivery':'إرسال البريد','replySent':'أُرسل','replyNotSent':'لم يُرسل','confirmAnswerInquiry':'هل تريد تجهيز إجابة اعتماداً على معلومات المنتج الموثقة؟ قد تُرسل إلى صاحب الاستفسار فقط إذا كان إذن المالك ومزود البريد مفعّلين.','inquiryAnswered':'تمت معالجة الاستفسار. أُرسل البريد: ',
+  'lbl.content':'المحتوى العضوي','contentHint':'قد يستهلك إعداد المسودة رصيد النماذج المهيأ. يتحقق الخادم دائماً من إذن نشر المحتوى وجودة المصادر والإيقاف الطارئ قبل النشر.','draftArticle':'إعداد مقال موثّق المصادر','contentTopicPlaceholder':'موضوع البحث للمسودة…','noArticles':'لا توجد مسودات أو مقالات منشورة بعد.','publishArticle':'نشر المقال','reviewArticle':'مراجعة المحتوى والمصادر','publishedArticle':'منشور','confirmArticlePublish':'هل تريد نشر هذا المقال الموثّق المصادر على موقع طارق العام؟','draftingArticle':'جارٍ إعداد المسودة من مصادر عامة…','articleDrafted':'أُنشئت المسودة: ','articlePublished':'نُشر المقال: ',
+  'lbl.sources':'مصادر','topicRequired':'أدخل موضوعاً بطول 3 أحرف على الأقل.',
   'lbl.published':'منتجات منشورة','lbl.delivered':'تم التسليم','lbl.qualified':'عملاء مؤهّلون','lbl.awaiting':'بانتظار الموافقة',
   'seedProducts':'تهيئة الكتالوج','view':'عرض','buyLink':'إنشاء الدفع','margin':'الهامش','price':'السعر','orders':'الطلبات',
   'deliverables':'المخرجات','orderStatus':'الحالة','customer':'العميل','amount':'المبلغ','artifact':'الأثر',
   'modeHint':'وضع OBSERVE يمنع كل أدوات التنفيذ. الإجراءات الحساسة (الدفع، التواصل، النشر) تتطلب موافقة دائمًا وفي كل الأوضاع.',
   'lbl.budget':'الميزانية','lbl.mode2':'الوضع','lbl.tasks':'المهام','lbl.approvals':'موافقات معلّقة',
-  'lbl.caps':'قدرات مُنفّذة','lbl.chain':'سلسلة التدقيق','lbl.revenue':'الإيراد المُحصّل',
+  'lbl.caps':'قدرات متحققة في الإنتاج','lbl.chain':'سلسلة التدقيق','lbl.revenue':'الإيراد المُحصّل',
   'lbl.expenses':'المصروفات','lbl.profit':'صافي الربح','lbl.leads':'العملاء المحتملون','lbl.deals':'الصفقات',
   'lbl.calls':'استدعاءات الواجهة','lbl.apicost':'تكلفة الواجهة','lbl.buyers':'المشترون','lbl.drafts':'مسودات التواصل',
   'lbl.dead':'رسائل ميتة','lbl.failed':'مهام فاشلة','lbl.perr':'أخطاء المزوّد',
@@ -308,10 +335,10 @@ let capFilter = 'ALL';
 const t = (k) => (T[lang] && T[lang][k]) || k;
 
 const capStatusClass = (s) =>
-  s === 'VERIFIED_FUNCTIONAL' ? 'ok'
+  s === 'VERIFIED_PRODUCTION' ? 'ok'
   : s === 'IMPLEMENTED_NOT_VERIFIED' ? 'info'
   : s === 'PARTIAL' ? 'warn'
-  : s === 'BLOCKED_EXTERNAL_DEPENDENCY' ? 'warn' : 'bad';
+  : s === 'BACKEND_ONLY' || s === 'UI_ONLY' || s === 'BLOCKED_BY_CONFIG' ? 'warn' : 'bad';
 
 function renderCaps() {
   const q = capQuery.toLowerCase();
@@ -332,6 +359,7 @@ function applyLang() {
   document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.dataset.i18n); });
   document.getElementById('planGoal').placeholder = lang === 'ar' ? 'اكتب أمرًا بالعربية أو الإنجليزية…' : 'Type a command in English or Arabic…';
   document.getElementById('capSearch').placeholder = lang === 'ar' ? 'ابحث في القدرات…' : 'Search capabilities…';
+  document.getElementById('contentTopic').placeholder = t('contentTopicPlaceholder');
 }
 
 async function api(path, opts = {}) {
@@ -354,13 +382,16 @@ function card(label, value, sub) {
 }
 
 async function refresh() {
-  const [h, mode, caps, tasks, approvals, fin, audit, leads, usage, errors, config, research, integ, comm, prods, ords, sup, ctl, opt, ready] = await Promise.all([
+  const [h, mode, caps, tasks, approvals, fin, audit, leads, usage, errors, config, research, integ, comm, prods, ords, sup, ctl, opt, ready, content] = await Promise.all([
     api('/health?deep=1'), api('/mode'), api('/capabilities'),
     api('/tasks'), api('/approvals'), api('/finance'), api('/audit'),
     api('/leads'), api('/usage'), api('/errors'), api('/config'), api('/research'), api('/integrations'),
     api('/commercial/overview'), api('/products'), api('/orders'),
-    api('/supervisor'), api('/controls'), api('/optimization'), api('/readiness'),
+    api('/supervisor'), api('/controls'), api('/optimization'), api('/readiness'), api('/content'),
   ]);
+  // Keep this additional database read sequential because the production DB is
+  // intentionally pooled with a low connection limit.
+  const inquiryData = await api('/inquiries');
 
   // health dot
   const dot = document.getElementById('healthDot');
@@ -368,7 +399,7 @@ async function refresh() {
   document.getElementById('modePill').textContent = mode.mode;
 
   const capSum = caps.summary || {};
-  const impl = (capSum.VERIFIED_FUNCTIONAL || 0) + '/' + (caps.items || []).length;
+  const impl = (capSum.VERIFIED_PRODUCTION || 0) + '/' + (caps.items || []).length;
   CAPS = caps.items || [];
   const pending = (approvals.approvals || []).filter((a) => a.status === 'PENDING').length;
   const chainOk = audit.chain && audit.chain.ok;
@@ -454,6 +485,38 @@ async function refresh() {
         '</td><td>' + pill(o.status, statusCls) +
         '</td><td>' + (art ? pill('validated', 'ok') : '—') +
         '</td><td>' + (['CREATED','AWAITING_PAYMENT'].includes(o.status) ? '<button class="ghost" data-checkout="' + esc(o.id) + '">' + t('buyLink') + '</button>' : '') +
+        '</td></tr>';
+    }).join('') + '</tbody></table>';
+
+  // This owner-only view shows the submitted question and any answer already
+  // prepared by the server. Only NEW inquiries can be processed again; server
+  // permission and provider checks remain authoritative for any email send.
+  const inquiryRows = inquiryData.inquiries || [];
+  document.getElementById('inquiries').innerHTML = inquiryRows.length === 0 ? '<p class="muted">' + t('noInquiries') + '</p>' :
+    inquiryRows.map((inquiry) => '<article class="card" style="margin:10px 0;padding:12px">' +
+      '<div class="row" style="justify-content:space-between"><strong>' + esc(inquiry.name || inquiry.email) + '</strong>' +
+      pill(inquiry.status, inquiry.status === 'ANSWERED' ? 'ok' : inquiry.status === 'CLOSED' ? 'warn' : 'info') + '</div>' +
+      '<p class="muted" style="font-size:12px">' + esc(inquiry.email) + (inquiry.productSlug ? ' · ' + esc(inquiry.productSlug) : '') +
+      ' · ' + esc((inquiry.createdAt || '').slice(0, 19).replace('T', ' ')) + '</p>' +
+      '<strong>' + t('inquiryMessageLabel') + '</strong><pre class="article-preview">' + esc(inquiry.message) + '</pre>' +
+      (inquiry.answer ? '<strong>' + t('inquiryAnswerLabel') + '</strong><pre class="article-preview">' + esc(inquiry.answer) + '</pre>' : '') +
+      '<p class="muted" style="font-size:12px">' + t('inquiryDelivery') + ': ' + t(inquiry.replySentAt ? 'replySent' : 'replyNotSent') + '</p>' +
+      (inquiry.status === 'NEW' ? '<button class="primary" data-answer-inquiry="' + esc(inquiry.id) + '">' + t('answerInquiry') + '</button>' : '') +
+      '</article>').join('');
+
+  // Content remains a draft until the owner requests publication. The server
+  // re-checks permission, source QA and emergency stop on every publish call.
+  const articles = content.articles || [];
+  document.getElementById('content').innerHTML = articles.length === 0 ? '<p class="muted">' + t('noArticles') + '</p>' :
+    '<table><thead><tr><th>' + t('lbl.content') + '</th><th>' + t('orderStatus') + '</th><th>' + t('status') + '</th><th>' + t('lbl.open') + '</th></tr></thead><tbody>' +
+    articles.map((a) => {
+      const bodyText = String(a.bodyHtml || '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      const sourceText = Array.isArray(a.sources) ? a.sources.map((s) => String(s.url || '')).join('\n') : '';
+      const review = '<details><summary>' + t('reviewArticle') + '</summary><pre class="article-preview">' + esc(bodyText) +
+        (sourceText ? '\n\n' + t('lbl.sources') + ':\n' + esc(sourceText) : '') + '</pre></details>';
+      return '<tr><td>' + esc(a.title) + '<div class="muted" style="font-size:11px">' + esc(a.summary || '') + '</div><div class="muted" style="font-size:11px">' + esc(a.slug) + ' · ' + ((Array.isArray(a.sources) && a.sources.length) || 0) + ' ' + t('lbl.sources') + '</div>' + review + '</td>' +
+        '<td>' + pill(a.status, a.status === 'PUBLISHED' ? 'ok' : 'info') + '</td><td>' + esc((a.createdAt || '').slice(0, 19).replace('T', ' ')) + '</td><td>' +
+        (a.status === 'PUBLISHED' ? '<a class="pill ok" href="/insights/' + encodeURIComponent(a.slug) + '" target="_blank" rel="noopener">' + t('view') + '</a>' : '<button class="primary" data-publish-article="' + esc(a.slug) + '">' + t('publishArticle') + '</button>') +
         '</td></tr>';
     }).join('') + '</tbody></table>';
 
@@ -679,6 +742,50 @@ document.getElementById('seedProductsBtn').onclick = async () => {
   btn.disabled = true;
   try { await api('/products/seed', { method: 'POST' }); await refresh(); }
   catch (e) { alert(e.message); }
+  finally { btn.disabled = false; }
+};
+
+document.getElementById('contentDraftBtn').onclick = async () => {
+  const topic = document.getElementById('contentTopic').value.trim();
+  const message = document.getElementById('contentMessage');
+  const btn = document.getElementById('contentDraftBtn');
+  message.textContent = '';
+  if (topic.length < 3) { message.textContent = t('topicRequired'); return; }
+  btn.disabled = true;
+  message.textContent = t('draftingArticle');
+  try {
+    const result = await api('/content/draft', { method: 'POST', body: JSON.stringify({ topic }) });
+    document.getElementById('contentTopic').value = '';
+    message.textContent = t('articleDrafted') + result.slug;
+    await refresh();
+  } catch (e) { message.textContent = 'Error: ' + e.message; }
+  finally { btn.disabled = false; }
+};
+
+document.getElementById('content').onclick = async (ev) => {
+  const slug = ev.target && ev.target.dataset && ev.target.dataset.publishArticle;
+  if (!slug || !confirm(t('confirmArticlePublish'))) return;
+  const message = document.getElementById('contentMessage');
+  message.textContent = '';
+  try {
+    const result = await api('/content/publish', { method: 'POST', body: JSON.stringify({ slug }) });
+    message.textContent = t('articlePublished') + result.slug;
+    await refresh();
+  } catch (e) { message.textContent = 'Error: ' + e.message; }
+};
+
+document.getElementById('inquiries').onclick = async (ev) => {
+  const id = ev.target && ev.target.dataset && ev.target.dataset.answerInquiry;
+  if (!id || !confirm(t('confirmAnswerInquiry'))) return;
+  const message = document.getElementById('inquiryMessage');
+  const btn = ev.target;
+  message.textContent = '';
+  btn.disabled = true;
+  try {
+    const result = await api('/inquiries/answer', { method: 'POST', body: JSON.stringify({ id }) });
+    message.textContent = t('inquiryAnswered') + (result.sent ? t('replySent') : t('replyNotSent') + (result.reason ? ' — ' + result.reason : ''));
+    await refresh();
+  } catch (e) { message.textContent = 'Error: ' + e.message; }
   finally { btn.disabled = false; }
 };
 

@@ -262,6 +262,6 @@ ${error}${notice}
   <textarea id="message" name="message" required maxlength="4000" placeholder="e.g. What exactly do I receive, and how long does it take?"></textarea>
   <button class="btn" type="submit">Send question</button>
 </form>
-<p class="muted">We use your email only to reply to this question. You can ask us to delete it at any time.</p>`,
+<p class="muted">We store your email, question, optional name and service choice to answer and review your request. We also retain your IP address for abuse prevention. You can ask us to delete this inquiry at any time.</p>`,
   );
 }

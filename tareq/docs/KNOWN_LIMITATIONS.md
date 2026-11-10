@@ -22,10 +22,11 @@ Honest, current limitations. None of these is hidden from the dashboard.
 5. **Discussion volume is a weak demand proxy.** The public-data connector
    measures interest only and caps confidence at 0.5.
 6. **No load testing.** Behaviour under many concurrent workers is unmeasured.
-7. **The 100-group list is a mapping, not a proof of 100 finished products.**
-   Statuses in `src/lib/capabilities/index.ts` reflect code + tests; every group
-   is currently `implemented`, but the matrix is only as honest as those tests.
-   See `TAREQ_100_FEATURE_MATRIX.md`.
+7. **The 100-group list is not proof of 100 production features.**
+   The audited register distinguishes production verification from tested code
+   and backend-only helpers. Current audited counts are in
+   `PHASE1_100_CAPABILITY_REGISTER.md`; production-verified groups remain zero
+   until direct deployed evidence is recorded.
 8. **Integrations are code-complete but not all live.** Gmail and HubSpot report
    honest configured/unconfigured status and refuse when unconfigured; their live
    connection is blocked on the owner supplying OAuth/token secrets, not on code.
@@ -51,3 +52,14 @@ Honest, current limitations. None of these is hidden from the dashboard.
     own counters, so the effective limit is per-instance, not global. A shared
     store (Redis) would make it global; the guard is still a strict improvement
     over an unthrottled login endpoint.
+13. **Inquiry email delivery is conditional and not yet proven live.** A submitted
+    inquiry is stored and answered from verified product data. Email is sent only
+    when the owner has enabled outreach permission and a provider is configured.
+    The dashboard exposes inquiry status and whether the provider accepted a
+    reply. If sending fails after an inquiry reaches `ANSWERED`, automatic/manual
+    retry is not yet implemented; do not treat the email as delivered unless
+    `replySentAt` is present.
+14. **Commercial activation is owner-gated.** The content owner interface is in
+    draft PR #12 and is not in production. No production content permission or
+    inquiry email permission was activated in this task. No genuine customer,
+    paid order, revenue, or net profit has been verified.
