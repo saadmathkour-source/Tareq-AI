@@ -248,9 +248,13 @@ async function activateOrder(
   currency: string,
   deliveryKeyPrefix?: string,
 ): Promise<{ activated: boolean; reason: string }> {
-  if (['PAID', 'IN_DELIVERY', 'DELIVERED'].includes(order.status)) {
-    return { activated: true, reason: 'already activated' };
+  // Late/replayed checkout events can arrive after a refund or chargeback.
+  // A reversed or cancelled order must never be re-activated or delivered.
+  if (order.status === 'REFUNDED' || order.status === 'CANCELLED') {
+    return { activated: false, reason: `order is ${order.status.toLowerCase()}` };
   }
+  // Validate currency and amount on EVERY event, including replays. An
+  // already-paid order does not authorize a different checkout session.
   if (order.currency.toLowerCase() !== currency.toLowerCase()) {
     logger.error('webhook currency mismatch; order not activated', { orderId: order.id, orderCurrency: order.currency, paymentCurrency: currency });
     await audit({ actorType: 'system', action: 'stripe.currency_mismatch', target: order.id, severity: 'error', metadata: { orderCurrency: order.currency, paymentCurrency: currency } });
@@ -260,6 +264,10 @@ async function activateOrder(
     logger.error('webhook amount mismatch; order not activated', { orderId: order.id, orderAmountUsd: Number(order.amountUsd), paymentAmountUsd: amountUsd });
     await audit({ actorType: 'system', action: 'stripe.amount_mismatch', target: order.id, severity: 'error', metadata: { orderAmountUsd: Number(order.amountUsd), paymentAmountUsd: amountUsd } });
     return { activated: false, reason: 'amount mismatch' };
+  }
+
+  if (order.status === 'DELIVERED') {
+    return { activated: true, reason: 'already delivered' };
   }
 
   const customerEmail =
