@@ -52,3 +52,14 @@ Honest, current limitations. None of these is hidden from the dashboard.
     own counters, so the effective limit is per-instance, not global. A shared
     store (Redis) would make it global; the guard is still a strict improvement
     over an unthrottled login endpoint.
+13. **Inquiry email delivery is conditional and not yet proven live.** A submitted
+    inquiry is stored and answered from verified product data. Email is sent only
+    when the owner has enabled outreach permission and a provider is configured.
+    The dashboard exposes inquiry status and whether the provider accepted a
+    reply. If sending fails after an inquiry reaches `ANSWERED`, automatic/manual
+    retry is not yet implemented; do not treat the email as delivered unless
+    `replySentAt` is present.
+14. **Commercial activation is owner-gated.** The content owner interface is in
+    draft PR #12 and is not in production. No production content permission or
+    inquiry email permission was activated in this task. No genuine customer,
+    paid order, revenue, or net profit has been verified.
