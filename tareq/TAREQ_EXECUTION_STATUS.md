@@ -13,7 +13,7 @@
 - Phase 0 read-only source and production inventory: [`docs/PHASE0_PRODUCTION_INVENTORY.md`](docs/PHASE0_PRODUCTION_INVENTORY.md).
 - Phase 1 source-derived 100-capability register: [`docs/PHASE1_100_CAPABILITY_REGISTER.md`](docs/PHASE1_100_CAPABILITY_REGISTER.md). Exact IDs 1–100 are unique. The source’s 100 `VERIFIED_FUNCTIONAL` statuses were not accepted as production evidence; audited classifications are 9 PARTIAL, 19 IMPLEMENTED_NOT_VERIFIED, 72 BACKEND_ONLY.
 - Phase 2 frontend-to-backend audit: [`docs/PHASE2_FRONTEND_AUDIT.md`](docs/PHASE2_FRONTEND_AUDIT.md). Found that the live Insights page has no posts and the owner dashboard had no content controls despite backend routes.
-- Verified TAREQ root, default branch `main`, production commit `bca738c426482de22b16e86915685b87a299b356`, public customer pages, live `/health`, existing draft PRs #10 and #11.
+- Verified TAREQ root and default branch `main`. PR #10 (auth hardening) and PR #11 (inquiry stop/retry) are now merged; current `main` is `195bf0588465376ac27e001d43681c32fe3ec27c`. PR #12 remains a draft.
 - PR #12 (`fix/organic-content-dashboard`) adds bilingual owner surfaces to review sourced article drafts, explicitly confirm publishing, and inspect/answer inbound inquiries. Server permission, source QA, emergency-stop, outreach-permission and email-provider checks remain authoritative.
 - Contact success copy now distinguishes recorded inquiry from delivered email; the contact page discloses stored fields and IP use for abuse prevention.
 - Capability runtime statuses now distinguish `VERIFIED_PRODUCTION`, `IMPLEMENTED_NOT_VERIFIED`, `PARTIAL`, `BACKEND_ONLY` and the other blueprint values. Current count remains 0 verified production, 19 implemented not verified, 9 partial, 72 backend-only. Historical source-only rows are not called production proof.
@@ -21,22 +21,23 @@
 
 ## Evidence
 
-- Production health at `2026-11-10T16:52:50.995Z`: HTTP 200; database, OpenAI, DeepSeek, owner config indicators true; build SHA matches current main.
-- Public `/shop`, `/buy/market-opportunity-report`, `/contact` render; `/insights` reports no published articles.
-- Latest remote main is PR #9 merge/base followed by Phase 19 commit `bca738c…`; PR #10 and #11 remain open drafts. PR #11 describes 299/299 isolated local database tests, typecheck and build. This is test evidence only.
-- Focused verification after the inquiry surface and contact-message repair: dashboard + capability-index tests 17/17 passed; `npm run typecheck` passed; `npm run build` passed; `git diff --check` passed. Database integration tests were not run because no isolated `TEST_DATABASE_URL` is available in this workspace.
-- Current branch: `fix/organic-content-dashboard`, base `main` `bca738c…`; draft PR #12 is open and unmerged. It contains only `tareq/` files. GitHub Actions reports no workflow runs/checks for its head commit.
+- Historical production health at `2026-11-10T16:52:50.995Z`: HTTP 200; database, OpenAI, DeepSeek, and owner-config indicators true; deployed build SHA was `bca738c…` at that time.
+- A read-only `/health` request at `2026-11-10T18:31:32Z` returned HTTP 200 headers but no body before the 10-second client timeout. Current production build and integration health therefore remain unverified.
+- Public `/shop`, `/buy/market-opportunity-report`, and `/contact` rendered in the earlier Phase 0 snapshot; `/insights` then had no published articles.
+- PR #11's latest-main source adds an inquiry delivery lease (`reply_claimed_at`) and retry handling. Production still needs the additive schema field and deployment before this behavior can be assumed live.
+- Full TAREQ suite: 299/299 passed against temporary local PostgreSQL on loopback; no production credentials were inherited. Focused dashboard/capability tests: 17/17. `npm run typecheck`, `npm run build`, embedded dashboard `node --check`, and `git diff --check` passed on the merged-current-main branch.
+- Current branch `fix/organic-content-dashboard` includes current `origin/main` `195bf05…`; the 15 intended PR paths are all under `tareq/`. GitHub reports PR #12 open/draft, unmerged, and mergeable; no Actions runs/status checks are configured for its head.
 
 ## Current blockers
 
-1. Production organic-content channel has no articles. This branch supplies the owner review/publish surface, but the fix is not deployed; publishing permission remains off until the owner authorizes it.
-2. The owner inquiry surface can inspect and answer new inquiries. Email delivery remains conditional on explicit outreach permission plus a working provider. A failed answer email cannot yet be retried after the inquiry has been marked ANSWERED; this needs a safe retry design.
-3. Stripe LIVE/webhook, worker runtime/scheduler execution and email delivery cannot be verified without Railway runtime metadata or owner-only integration view.
+1. Production organic-content channel had no articles in the last verified snapshot. PR #12 adds the owner review/publish surface but is not deployed; production permission and current article state need re-verification before activation.
+2. The owner inquiry surface can inspect and process new inquiries. Email delivery remains conditional on explicit permission plus a working provider. The source retry mechanism requires `reply_claimed_at` schema application and a deployment; live delivery is unverified.
+3. Current production build/DB health could not be confirmed from the latest read-only probe; Stripe webhook, worker/scheduler and email status remain unverified.
 4. No evidence of a real customer, live paid order, delivery, revenue or net profit. First-sale validation remains pending.
 
 ## Remaining
 
-- Run a final secrets/conflict/scope scan and update PR #12 with the inquiry UI, truthful customer-facing response and status documentation.
+- Run final tests/build and secrets/conflict/scope scans on the current-main-based tree, then update PR #12 with the merged security baseline, inquiry UI, truthful contact copy and status documentation.
 - After PR review, request owner authorization for production content publishing or inquiry email only if needed. Do not deploy or change live permissions without approval.
 - Next after these owner surfaces: verify email delivery without sending customer mail, design safe retry for failed replies, then inspect sales/fulfillment evidence.
 - Review PR #11 for inquiry retry fix and schema application. Do not merge or deploy without the owner's separate approval; its database change has no checked-in migration.
@@ -49,7 +50,7 @@
 
 ## Next single action
 
-Complete the final diff/security/scope review and update draft PR #12. No merge or production deployment is authorized.
+Complete the final current-main diff/security/scope review and update draft PR #12. No merge or production deployment is authorized.
 
 ## Complete TAREQ file listing
 - `.dockerignore`
