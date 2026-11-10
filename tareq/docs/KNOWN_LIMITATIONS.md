@@ -22,10 +22,11 @@ Honest, current limitations. None of these is hidden from the dashboard.
 5. **Discussion volume is a weak demand proxy.** The public-data connector
    measures interest only and caps confidence at 0.5.
 6. **No load testing.** Behaviour under many concurrent workers is unmeasured.
-7. **The 100-group list is a mapping, not a proof of 100 finished products.**
-   Statuses in `src/lib/capabilities/index.ts` reflect code + tests; every group
-   is currently `implemented`, but the matrix is only as honest as those tests.
-   See `TAREQ_100_FEATURE_MATRIX.md`.
+7. **The 100-group list is not proof of 100 production features.**
+   The audited register distinguishes production verification from tested code
+   and backend-only helpers. Current audited counts are in
+   `PHASE1_100_CAPABILITY_REGISTER.md`; production-verified groups remain zero
+   until direct deployed evidence is recorded.
 8. **Integrations are code-complete but not all live.** Gmail and HubSpot report
    honest configured/unconfigured status and refuse when unconfigured; their live
    connection is blocked on the owner supplying OAuth/token secrets, not on code.
