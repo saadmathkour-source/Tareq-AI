@@ -203,7 +203,13 @@
 
   <section>
     <h2 data-i18n="s.integrations">Integrations</h2>
-    <div class="card"><div id="integrations"></div></div>
+    <div class="card">
+      <div class="row" style="align-items:center;gap:10px;flex-wrap:wrap">
+        <button class="ghost" id="verifyIntegrationsBtn" type="button">Verify connections (read-only)</button>
+        <span class="muted" id="verifyIntegrationsMsg" role="status" aria-live="polite"></span>
+      </div>
+      <div id="integrations"></div>
+    </div>
   </section>
 
   <section>
@@ -423,6 +429,7 @@ function applyLang() {
   document.getElementById('capEvaluateSummary').textContent = lang === 'ar' ? 'تشغيل قدرة تحليلية (29–100) بمدخلات المالك' : 'Run an analytical capability (29–100) — owner input only';
   document.getElementById('capEvaluateHint').textContent = lang === 'ar' ? 'حساب تحليلي محلي فقط؛ لا يرسل رسائل، ولا ينفذ دفعًا، ولا يثبت جاهزية الإنتاج.' : 'Local deterministic analysis only. No customer contact, live payment, or production verification.';
   document.getElementById('capEvaluateBtn').textContent = lang === 'ar' ? 'اختبار القدرة بأمان' : 'Evaluate safely';
+  document.getElementById('verifyIntegrationsBtn').textContent = lang === 'ar' ? 'تحقق من الاتصالات (قراءة فقط)' : 'Verify connections (read-only)';
 }
 
 async function api(path, opts = {}) {
@@ -670,6 +677,7 @@ async function renderDashboard(sessionToken) {
   const verification = intg.commercialVerification;
   const result = verification && verification.result;
   const checked = result && result.email;
+  const hubspotChecked = result && result.hubspot;
   document.getElementById('integrations').innerHTML +=
     '<p class="muted">' + (lang === 'ar' ? 'آخر فحص إنتاج محفوظ: ' : 'Last recorded production check: ') +
     esc(verification && verification.finishedAt || 'unverified') + '</p>' +
@@ -678,6 +686,13 @@ async function renderDashboard(sessionToken) {
     '<p class="muted">' + esc(checked && checked.failureCode ? 'Failure code: ' + checked.failureCode + (checked.httpStatus ? ' (HTTP ' + checked.httpStatus + ')' : '') : '') +
     esc(checked && checked.sendPermission ? ' · Gmail send scope: ' + checked.sendPermission : '') + '</p>' +
     '<p class="muted">' + (lang === 'ar' ? 'وجود المفاتيح لا يثبت الاتصال أو التسليم. تعرض هذه اللوحة نتيجة الفحص المحفوظ دون تشغيل فحص جديد.' : 'Configured credentials do not prove connection or delivery. This displays saved evidence without running another probe.') + '</p>';
+
+  if (hubspotChecked) {
+    document.getElementById('integrations').innerHTML +=
+      '<p>' + pill('HubSpot CRM read: ' + (hubspotChecked.connectionVerified === true ? 'verified' : 'failed'), hubspotChecked.connectionVerified === true ? 'ok' : 'warn') +
+      ' <span class="muted">' + esc(hubspotChecked.failureCode || '') +
+      (hubspotChecked.httpStatus ? ' (HTTP ' + esc(hubspotChecked.httpStatus) + ')' : '') + '</span></p>';
+  }
 
   // health
   document.getElementById('health').innerHTML = Object.entries(h.checks || {})
@@ -962,6 +977,23 @@ document.getElementById('tasks').onclick = async (ev) => {
   if (!id || !confirm(t('confirmCancel'))) return;
   await api('/tasks/cancel', { method: 'POST', body: JSON.stringify({ id }) });
   await refresh();
+};
+
+// One explicit owner action, not an automatic verification every dashboard refresh.
+document.getElementById('verifyIntegrationsBtn').onclick = async () => {
+  const button = document.getElementById('verifyIntegrationsBtn');
+  const status = document.getElementById('verifyIntegrationsMsg');
+  button.disabled = true;
+  status.textContent = '';
+  try {
+    const result = await api('/integrations/verify', { method: 'POST', body: '{}' });
+    status.textContent = (lang === 'ar' ? 'تمت إضافة فحص قراءة فقط إلى الطابور: ' : 'Read-only check queued: ') + result.taskId;
+    await refresh();
+  } catch (e) {
+    status.textContent = e.message;
+  } finally {
+    button.disabled = false;
+  }
 };
 
 // --- Phase 18: supervisor, controls ---

@@ -26,9 +26,13 @@ if [ "$TEST_DATABASE_URL" = "${DATABASE_URL:-}" ]; then
 fi
 
 echo "syncing schema into the isolated test database..."
-DATABASE_URL="$TEST_DATABASE_URL" DIRECT_URL="$TEST_DIRECT_URL" npx prisma db push --skip-generate
+# The CLI needs the target URL directly. Explicitly disable the test flag
+# for schema sync because it does not instantiate the application's Db client.
+TAREQ_USE_TEST_DB=0 DATABASE_URL="$TEST_DATABASE_URL" DIRECT_URL="$TEST_DIRECT_URL" npx prisma db push --skip-generate
 
 echo "seeding the isolated test database (products, budget, owner, schedules)..."
-DATABASE_URL="$TEST_DATABASE_URL" DIRECT_URL="$TEST_DIRECT_URL" node --experimental-strip-types scripts/bootstrap.ts
+# The runtime MUST keep the original production URL distinct from its test URL:
+# resolveDatabaseUrl() then selects TEST_DATABASE_URL and verifies the guard.
+TAREQ_USE_TEST_DB=1 node --experimental-strip-types scripts/bootstrap.ts
 
 echo "done."

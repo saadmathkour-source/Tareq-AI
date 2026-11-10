@@ -14,11 +14,52 @@ export interface HubSpotStatus {
   missing: string[];
 }
 
+/**
+ * A HubSpot private-app token may be stored under the platform's legacy
+ * HUBSPOT_ACCESS_TOKEN variable. Both must represent an owner-authorized
+ * bearer token; mere presence is not proof the provider will accept it.
+ */
+function configuredToken(): string | null {
+  if (hasSecret('HUBSPOT_PRIVATE_APP_TOKEN')) return process.env.HUBSPOT_PRIVATE_APP_TOKEN!.trim();
+  if (hasSecret('HUBSPOT_ACCESS_TOKEN')) return process.env.HUBSPOT_ACCESS_TOKEN!.trim();
+  return null;
+}
+
 export function status(): HubSpotStatus {
-  return { configured: hasSecret('HUBSPOT_PRIVATE_APP_TOKEN'), missing: hasSecret('HUBSPOT_PRIVATE_APP_TOKEN') ? [] : ['HUBSPOT_PRIVATE_APP_TOKEN'] };
+  return {
+    configured: Boolean(configuredToken()),
+    missing: configuredToken() ? [] : ['HUBSPOT_PRIVATE_APP_TOKEN or HUBSPOT_ACCESS_TOKEN'],
+  };
 }
 
 const BASE = 'https://api.hubapi.com';
+
+/** Read-only token and CRM-scope probe; never creates a CRM record. */
+export async function verifyConnection(): Promise<{
+  configured: boolean; connectionVerified: boolean; httpStatus?: number;
+  failureCode?: 'missing_config' | 'unauthorized' | 'missing_scope' | 'rate_limited' | 'provider_error' | 'network_error';
+}> {
+  if (!status().configured) return { configured: false, connectionVerified: false, failureCode: 'missing_config' };
+  try {
+    const response = await fetch(BASE + '/crm/v3/objects/contacts?limit=1', {
+      headers: { authorization: 'Bearer ' + configuredToken()! },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (response.ok) return { configured: true, connectionVerified: true, httpStatus: response.status };
+    return {
+      configured: true,
+      connectionVerified: false,
+      httpStatus: response.status,
+      failureCode: response.status === 401 ? 'unauthorized'
+        : response.status === 403 ? 'missing_scope'
+        : response.status === 429 ? 'rate_limited' : 'provider_error',
+    };
+  } catch {
+    // No upstream description, token or arbitrary exception is persisted.
+    return { configured: true, connectionVerified: false, failureCode: 'network_error' };
+  }
+}
+
 
 export interface UpsertResult {
   ok: boolean;
@@ -36,7 +77,7 @@ export async function upsertContact(input: {
   if (!status().configured) {
     return { ok: false, reason: 'HubSpot not configured (missing: HUBSPOT_PRIVATE_APP_TOKEN)' };
   }
-  const token = process.env.HUBSPOT_PRIVATE_APP_TOKEN!;
+  const token = configuredToken()!;
   const properties: Record<string, string> = { email: input.email };
   if (input.firstname) properties['firstname'] = input.firstname;
   if (input.lastname) properties['lastname'] = input.lastname;
@@ -70,7 +111,7 @@ export async function upsertContact(input: {
 }
 
 function token(): string {
-  return process.env.HUBSPOT_PRIVATE_APP_TOKEN!;
+  return configuredToken()!;
 }
 
 /** Read a contact by id. */
