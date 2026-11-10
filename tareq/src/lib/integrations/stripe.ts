@@ -195,10 +195,16 @@ export function classifyStripeEvent(event: { id?: string; type?: string; livemod
     return { action: 'ignore', reason: `ignored event type ${event.type}` };
   }
 
-  // A completed session that is not actually paid must never be recognised.
+  // Fail closed: a successful Checkout event MUST explicitly report paid.
+  // Missing/null status is not payment evidence, even with a valid signature.
+  // Some asynchronous payment methods emit completed before funds settle.
   const paymentStatus = session['payment_status'];
-  if (paymentStatus !== undefined && paymentStatus !== 'paid') {
-    return { action: 'ignore', reason: `session not paid (payment_status=${String(paymentStatus)})` };
+  if (paymentStatus !== 'paid') {
+    return { action: 'ignore', reason: 'session is not confirmed paid' };
+  }
+  if (!Number.isFinite(amountUsd) || amountUsd <= 0 ||
+      typeof session['currency'] !== 'string' || !session['currency']) {
+    return { action: 'ignore', reason: 'paid session has missing or invalid amount/currency' };
   }
 
   if (event.livemode !== true) return { action: 'test', amountUsd, externalId, orderRef, currency };
