@@ -134,6 +134,21 @@ test('an answered but undelivered inquiry can retry delivery without regeneratin
   }
 });
 
+test('the emergency stop blocks public inquiry handling before it changes the inquiry', async () => {
+  const before = await getControls();
+  const { id } = await createInquiry({ email: 'stopped@example.com', message: 'Please answer this question.' });
+  await setControls({ emergencyStop: true }, 'test');
+  try {
+    await assert.rejects(() => answerInquiry(id), /emergency stop is engaged/);
+    const row = await prisma.inquiry.findUnique({ where: { id } });
+    assert.equal(row?.status, 'NEW', 'the inquiry remains untouched while stopped');
+    assert.equal(row?.answer, null);
+  } finally {
+    await prisma.inquiry.delete({ where: { id } });
+    await setControls({ emergencyStop: before.emergencyStop }, 'test');
+  }
+});
+
 test('the new acquisition handlers are registered', () => {
   registerAllHandlers();
   const kinds = new Set(registeredKinds());
