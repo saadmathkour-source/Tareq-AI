@@ -142,6 +142,12 @@
       <div id="orders"></div>
     </div>
     <div class="card" style="margin-top:14px">
+      <h3 data-i18n="lbl.inquiries">Customer inquiries</h3>
+      <p class="muted" style="font-size:12px" data-i18n="inquiriesHint">Answers use verified product data. Processing a new inquiry may email the requester only when owner permission and a configured provider both allow it.</p>
+      <p class="err" id="inquiryMessage" aria-live="polite"></p>
+      <div id="inquiries"></div>
+    </div>
+    <div class="card" style="margin-top:14px">
       <h3 data-i18n="lbl.content">Organic content</h3>
       <p class="muted" style="font-size:12px" data-i18n="contentHint">Drafting may use configured model quota. Publishing is always checked by the server against the content permission, source QA and emergency stop.</p>
       <div class="row" style="margin:10px 0">
@@ -262,6 +268,7 @@ T.en = {
   's.integrations':'Integrations','s.leads':'Leads & customers','s.research':'Research & opportunity reports','s.usage':'API usage & cost','s.errors':'Errors','s.config':'Agent configuration',
   's.health':'System health · audit','lbl.mode':'Operating mode','apply':'Apply','plan':'Plan','mission':'Run mission',
   's.commercial':'Commercial operation — products · orders · deliveries','lbl.products':'Products','lbl.orders':'Orders',
+  'lbl.inquiries':'Customer inquiries','inquiriesHint':'Answers use verified product data. Processing a new inquiry may email the requester only when owner permission and a configured provider both allow it.','noInquiries':'No customer inquiries yet.','answerInquiry':'Prepare answer','inquiryStatus':'Inquiry status','inquiryMessageLabel':'Question','inquiryAnswerLabel':'Prepared answer','inquiryDelivery':'Email delivery','replySent':'Sent','replyNotSent':'Not sent','confirmAnswerInquiry':'Prepare an answer from verified product information? This may email the requester only if owner permission and email configuration allow it.','inquiryAnswered':'Inquiry processed. Email sent: ',
   'lbl.content':'Organic content','contentHint':'Drafting may use configured model quota. Publishing is always checked by the server against the content permission, source QA and emergency stop.',
   'draftArticle':'Draft sourced article','contentTopicPlaceholder':'Research topic to draft…','noArticles':'No drafts or published articles yet.','publishArticle':'Publish article','reviewArticle':'Review content and sources','publishedArticle':'Published','confirmArticlePublish':'Publish this source-cited article on the public TAREQ site?','draftingArticle':'Drafting from public sources…','articleDrafted':'Draft created: ','articlePublished':'Published: ',
   'lbl.sources':'sources','topicRequired':'Enter a topic of at least 3 characters.',
@@ -295,6 +302,7 @@ T.ar = {
   's.integrations':'التكاملات','s.leads':'العملاء المحتملون والعملاء','s.research':'تقارير البحث والفرص','s.usage':'استخدام واجهات الذكاء الاصطناعي والتكلفة','s.errors':'الأخطاء','s.config':'إعداد الوكيل',
   's.health':'صحة النظام · التدقيق','lbl.mode':'وضع التشغيل','apply':'تطبيق','plan':'تخطيط','mission':'تشغيل مهمة',
   's.commercial':'العمل التجاري — المنتجات · الطلبات · التسليم','lbl.products':'المنتجات','lbl.orders':'الطلبات',
+  'lbl.inquiries':'استفسارات العملاء','inquiriesHint':'تُبنى الإجابات على بيانات المنتج الموثقة. قد يؤدي تجهيز إجابة لاستفسار جديد إلى مراسلة صاحبه فقط عند تفعيل إذن المالك وإعداد مزود البريد معاً.','noInquiries':'لا توجد استفسارات عملاء بعد.','answerInquiry':'تجهيز الإجابة','inquiryStatus':'حالة الاستفسار','inquiryMessageLabel':'السؤال','inquiryAnswerLabel':'الإجابة المجهزة','inquiryDelivery':'إرسال البريد','replySent':'أُرسل','replyNotSent':'لم يُرسل','confirmAnswerInquiry':'هل تريد تجهيز إجابة اعتماداً على معلومات المنتج الموثقة؟ قد تُرسل إلى صاحب الاستفسار فقط إذا كان إذن المالك ومزود البريد مفعّلين.','inquiryAnswered':'تمت معالجة الاستفسار. أُرسل البريد: ',
   'lbl.content':'المحتوى العضوي','contentHint':'قد يستهلك إعداد المسودة رصيد النماذج المهيأ. يتحقق الخادم دائماً من إذن نشر المحتوى وجودة المصادر والإيقاف الطارئ قبل النشر.','draftArticle':'إعداد مقال موثّق المصادر','contentTopicPlaceholder':'موضوع البحث للمسودة…','noArticles':'لا توجد مسودات أو مقالات منشورة بعد.','publishArticle':'نشر المقال','reviewArticle':'مراجعة المحتوى والمصادر','publishedArticle':'منشور','confirmArticlePublish':'هل تريد نشر هذا المقال الموثّق المصادر على موقع طارق العام؟','draftingArticle':'جارٍ إعداد المسودة من مصادر عامة…','articleDrafted':'أُنشئت المسودة: ','articlePublished':'نُشر المقال: ',
   'lbl.sources':'مصادر','topicRequired':'أدخل موضوعاً بطول 3 أحرف على الأقل.',
   'lbl.published':'منتجات منشورة','lbl.delivered':'تم التسليم','lbl.qualified':'عملاء مؤهّلون','lbl.awaiting':'بانتظار الموافقة',
@@ -383,6 +391,9 @@ async function refresh() {
     api('/commercial/overview'), api('/products'), api('/orders'),
     api('/supervisor'), api('/controls'), api('/optimization'), api('/readiness'), api('/content'),
   ]);
+  // Keep this additional database read sequential because the production DB is
+  // intentionally pooled with a low connection limit.
+  const inquiryData = await api('/inquiries');
 
   // health dot
   const dot = document.getElementById('healthDot');
@@ -478,6 +489,22 @@ async function refresh() {
         '</td><td>' + (['CREATED','AWAITING_PAYMENT'].includes(o.status) ? '<button class="ghost" data-checkout="' + esc(o.id) + '">' + t('buyLink') + '</button>' : '') +
         '</td></tr>';
     }).join('') + '</tbody></table>';
+
+  // This owner-only view shows the submitted question and any answer already
+  // prepared by the server. Only NEW inquiries can be processed again; server
+  // permission and provider checks remain authoritative for any email send.
+  const inquiryRows = inquiryData.inquiries || [];
+  document.getElementById('inquiries').innerHTML = inquiryRows.length === 0 ? '<p class="muted">' + t('noInquiries') + '</p>' :
+    inquiryRows.map((inquiry) => '<article class="card" style="margin:10px 0;padding:12px">' +
+      '<div class="row" style="justify-content:space-between"><strong>' + esc(inquiry.name || inquiry.email) + '</strong>' +
+      pill(inquiry.status, inquiry.status === 'ANSWERED' ? 'ok' : inquiry.status === 'CLOSED' ? 'warn' : 'info') + '</div>' +
+      '<p class="muted" style="font-size:12px">' + esc(inquiry.email) + (inquiry.productSlug ? ' · ' + esc(inquiry.productSlug) : '') +
+      ' · ' + esc((inquiry.createdAt || '').slice(0, 19).replace('T', ' ')) + '</p>' +
+      '<strong>' + t('inquiryMessageLabel') + '</strong><pre class="article-preview">' + esc(inquiry.message) + '</pre>' +
+      (inquiry.answer ? '<strong>' + t('inquiryAnswerLabel') + '</strong><pre class="article-preview">' + esc(inquiry.answer) + '</pre>' : '') +
+      '<p class="muted" style="font-size:12px">' + t('inquiryDelivery') + ': ' + t(inquiry.replySentAt ? 'replySent' : 'replyNotSent') + '</p>' +
+      (inquiry.status === 'NEW' ? '<button class="primary" data-answer-inquiry="' + esc(inquiry.id) + '">' + t('answerInquiry') + '</button>' : '') +
+      '</article>').join('');
 
   // Content remains a draft until the owner requests publication. The server
   // re-checks permission, source QA and emergency stop on every publish call.
@@ -747,6 +774,21 @@ document.getElementById('content').onclick = async (ev) => {
     message.textContent = t('articlePublished') + result.slug;
     await refresh();
   } catch (e) { message.textContent = 'Error: ' + e.message; }
+};
+
+document.getElementById('inquiries').onclick = async (ev) => {
+  const id = ev.target && ev.target.dataset && ev.target.dataset.answerInquiry;
+  if (!id || !confirm(t('confirmAnswerInquiry'))) return;
+  const message = document.getElementById('inquiryMessage');
+  const btn = ev.target;
+  message.textContent = '';
+  btn.disabled = true;
+  try {
+    const result = await api('/inquiries/answer', { method: 'POST', body: JSON.stringify({ id }) });
+    message.textContent = t('inquiryAnswered') + (result.sent ? t('replySent') : t('replyNotSent') + (result.reason ? ' — ' + result.reason : ''));
+    await refresh();
+  } catch (e) { message.textContent = 'Error: ' + e.message; }
+  finally { btn.disabled = false; }
 };
 
 document.getElementById('orders').onclick = async (ev) => {
