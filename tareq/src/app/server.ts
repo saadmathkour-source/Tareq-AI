@@ -690,8 +690,14 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
 
+    // Visitors enter the sales path; owner controls stay at /dashboard.
+    if (req.method === 'GET' && url.pathname === '/') {
+      res.writeHead(302, { location: '/shop' });
+      res.end();
+      return;
+    }
     // Owner dashboard (static shell; data comes from authenticated API calls).
-    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/dashboard')) {
+    if (req.method === 'GET' && url.pathname === '/dashboard') {
       const html = dashboard();
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(html) });
       res.end(html);

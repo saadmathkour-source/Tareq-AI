@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { statusForError } from '../src/app/server.ts';
+import { server, statusForError } from '../src/app/server.ts';
+import type { AddressInfo } from 'node:net';
 import { ForbiddenError, ValidationError, LimitExceededError } from '../src/lib/core/errors.ts';
 
 /**
@@ -31,4 +32,19 @@ test('an unexpected error still maps to 500 and hides internals', () => {
   const r = statusForError(new Error('connection reset by peer'));
   assert.equal(r.status, 500);
   assert.equal(r.body.error, 'internal error');
+});
+
+test('visitors enter the shop while owner sign-in remains at /dashboard', async () => {
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  try {
+    const home = await fetch(base, { redirect: 'manual' });
+    assert.equal(home.status, 302);
+    assert.equal(home.headers.get('location'), '/shop');
+    const owner = await fetch(`${base}/dashboard`);
+    assert.equal(owner.status, 200);
+    assert.match(await owner.text(), /Owner sign-in/);
+  } finally {
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+  }
 });
