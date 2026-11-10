@@ -28,9 +28,20 @@ test('dashboard fetches data from the authenticated API, not hardcoded values', 
 });
 
 test('dashboard covers the full operational surface', () => {
-  for (const ep of ['/tasks', '/approvals', '/mode', '/leads', '/usage', '/errors', '/config', '/research', '/health', '/supervisor', '/controls', '/optimization', '/readiness']) {
+  for (const ep of ['/tasks', '/approvals', '/mode', '/leads', '/usage', '/errors', '/config', '/research', '/health', '/supervisor', '/controls', '/optimization', '/readiness', '/content']) {
     assert.ok(html.includes(ep), `dashboard references ${ep}`);
   }
+});
+
+test('dashboard exposes owner-gated organic content draft and publish actions', () => {
+  assert.match(html, /id="contentTopic"/, 'owner can provide a specific draft topic');
+  assert.match(html, /api\('\/content\/draft'/, 'draft action calls the protected draft API');
+  assert.match(html, /data-publish-article=/, 'draft rows expose an explicit publish action');
+  assert.match(html, /api\('\/content\/publish'/, 'publish action calls the server-gated publish API');
+  assert.match(html, /confirm\(t\('confirmArticlePublish'\)\)/, 'public publishing requires an explicit confirmation click');
+  assert.match(html, /Review content and sources/, 'the owner can expand a draft preview and its source URLs before publishing');
+  assert.match(html, /esc\(bodyText\)/, 'article body is escaped before it is rendered in the dashboard');
+  assert.match(html, /publishing is always checked by the server against the content permission, source QA and emergency stop/i);
 });
 
 test('dashboard uses the real ledger field names, not invented ones', () => {
