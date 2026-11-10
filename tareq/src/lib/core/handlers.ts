@@ -30,7 +30,7 @@ import { deliverOrder } from '../commercial/delivery.ts';
 import { financialReport } from '../finance/report.ts';
 import { runWatchdog } from './supervisor.ts';
 import { optimizationReport, allocateResources, type ProductPerformance, type ModelProfile } from '../commercial/optimization.ts';
-import { verifyCommercialConnections } from '../integrations/commercial-preflight.ts';
+import { verifyCommercialConnections, verifyEmailConnection } from '../integrations/commercial-preflight.ts';
 import { ValidationError } from './errors.ts';
 
 /** Extract a strict JSON object from a model reply, or null. */
@@ -51,6 +51,9 @@ export function registerAllHandlers(): void {
 }
 
 function registerAll(): void {
+  registerHandler('integration.verify_email', async () => {
+    return await verifyEmailConnection();
+  });
   registerHandler('integration.verify_commercial', async () => {
     return await verifyCommercialConnections();
   });

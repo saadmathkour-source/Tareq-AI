@@ -224,7 +224,7 @@ route('GET', '/capabilities', true, async (_req, res) => {
 
 route('GET', '/integrations', true, async (_req, res) => {
   const commercialVerification = await prisma.task.findFirst({
-    where: { kind: 'integration.verify_commercial', status: 'SUCCEEDED' },
+    where: { kind: { in: ['integration.verify_commercial', 'integration.verify_email'] }, status: 'SUCCEEDED' },
     orderBy: { finishedAt: 'desc' },
     select: { id: true, result: true, finishedAt: true },
   });

@@ -1,10 +1,29 @@
 import * as email from './email.ts';
 import { status as stripeStatus } from './stripe.ts';
 
-/** Verify the configured connections without a payment, message, or model call. */
-export async function verifyCommercialConnections() {
+/** One email-only probe; persist allowlisted metadata, never tokens or upstream text. */
+export async function verifyEmailConnection() {
   const emailStatus = email.status();
   const emailProbe = await email.verify();
+  return {
+    checkedAt: new Date().toISOString(),
+    email: {
+      configured: emailStatus.configured,
+      provider: emailStatus.provider,
+      connectionVerified: emailProbe.ok,
+      deliveryVerified: false,
+      failureCode: emailProbe.code,
+      httpStatus: emailProbe.httpStatus,
+      sendPermission: emailProbe.sendPermission ?? 'not_reported',
+      reason: emailProbe.ok ? undefined : 'Email connection verification failed',
+    },
+    note: 'Email connection metadata only. No email, draft, payment, Stripe request or model call was created.',
+  };
+}
+
+/** Verify the configured connections without a payment, message, or model call. */
+export async function verifyCommercialConnections() {
+  const emailCheck = await verifyEmailConnection();
   const st = stripeStatus();
   const stripe = {
     ...st,
@@ -51,13 +70,7 @@ export async function verifyCommercialConnections() {
   }
   return {
     checkedAt: new Date().toISOString(),
-    email: {
-      configured: emailStatus.configured,
-      provider: emailStatus.provider,
-      connectionVerified: emailProbe.ok,
-      deliveryVerified: false,
-      reason: emailProbe.ok ? undefined : 'Email connection verification failed',
-    },
+    email: emailCheck.email,
     stripe,
     note: 'Connection checks only. No message, checkout, payment or customer record was created.',
   };

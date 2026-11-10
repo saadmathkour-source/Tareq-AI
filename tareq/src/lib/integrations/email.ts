@@ -128,7 +128,7 @@ export async function send(input: SendInput): Promise<SendOutcome> {
  *  - gmail:  performs the OAuth refresh-token exchange only; a token proves the
  *    credentials work without sending or even drafting mail.
  */
-export async function verify(): Promise<{ ok: boolean; provider: EmailProvider; reason?: string }> {
+export async function verify(): Promise<{ ok: boolean; provider: EmailProvider; reason?: string; code?: gmail.GmailFailureCode; httpStatus?: number; sendPermission?: gmail.GmailSendPermission }> {
   const st = status();
   if (!st.configured) return { ok: false, provider: st.provider, reason: `not configured (missing: ${st.missing.join(', ')})` };
   try {
@@ -137,7 +137,7 @@ export async function verify(): Promise<{ ok: boolean; provider: EmailProvider; 
       return { ok: res.ok, provider: 'resend', reason: res.ok ? undefined : `HTTP ${res.status}` };
     }
     const token = await gmail.probeToken();
-    return { ok: token.ok, provider: 'gmail', reason: token.reason };
+    return { ...token, provider: 'gmail' };
   } catch (err) {
     return { ok: false, provider: st.provider, reason: (err as Error).message };
   }
