@@ -31,4 +31,4 @@ jobs:
       - name: Build
         run: npm run build
       - name: Bounded analytical tests (no production secrets or database)
-        run: node --test --experimental-strip-types tests/capability-execution.test.ts tests/capability-index.test.ts tests/capabilities.test.ts tests/commercial.test.ts
+        run: node --test --experimental-strip-types tests/capability-execution.test.ts tests/capability-route.test.ts tests/capability-index.test.ts tests/capabilities.test.ts tests/commercial.test.ts
