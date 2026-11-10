@@ -17,7 +17,7 @@ import { authenticate, assertSessionLive, login, logout, revokeAllSessions, type
 import { currentMode, setMode, type OperatingMode } from '../lib/security/permissions.ts';
 import { health, capabilityTable } from '../lib/observability/health.ts';
 import { evaluateAnalyticalCapability, analyticalCapabilityInfo } from '../lib/capabilities/execution.ts';
-import { stats as queueStats, cancel } from '../lib/queue/tasks.ts';
+import { stats as queueStats, cancel, enqueue } from '../lib/queue/tasks.ts';
 import { summary as financeSummary, acquisitionMetrics } from '../lib/finance/ledger.ts';
 import { financialReport } from '../lib/finance/report.ts';
 import { snapshot as budgetSnapshot } from '../lib/security/budget.ts';
@@ -266,6 +266,29 @@ route('GET', '/integrations', true, async (_req, res) => {
     telegram: { configured: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_OWNER_ID) },
     commercialVerification,
   });
+});
+
+/**
+ * Owner-triggered READ-ONLY probe, deduplicated for five-minute windows.
+ * Enqueues a single worker task: Gmail token refresh, Stripe account/webhook
+ * reads and HubSpot contact-scope read. Never sends a message or charges money.
+ * Viewing the dashboard never triggers a probe.
+ */
+route('POST', '/integrations/verify', true, async (_req, res, owner) => {
+  const bucket = Math.floor(Date.now() / 300000);
+  const taskId = await enqueue({
+    kind: 'integration.verify_commercial',
+    payload: { origin: 'owner_manual_preflight' },
+    idempotencyKey: 'owner:integration.verify:' + bucket,
+    priority: 'LOW',
+    maxAttempts: 1,
+  });
+  await audit({
+    actorType: 'owner', actorId: owner!.id,
+    action: 'integration.verify_requested', target: taskId,
+    metadata: { readOnly: true },
+  });
+  json(res, 202, { ok: true, taskId, status: 'queued', readOnly: true });
 });
 
 route('GET', '/tasks', true, async (_req, res) => {
