@@ -51,6 +51,17 @@ export interface DraftArticleInput {
   productSlug?: string | null;
 }
 
+/**
+ * Articles link to a purchasable offer only when it is actually live. When no
+ * offer is selected, prefer the current market report; a draft/paused offer is
+ * never advertised from public content.
+ */
+export async function articleProductSlug(requestedSlug?: string | null): Promise<string | null> {
+  const slug = requestedSlug?.trim() || 'market-opportunity-report';
+  const product = await prisma.product.findUnique({ where: { slug }, select: { slug: true, status: true } });
+  return product?.status === 'PUBLISHED' ? product.slug : null;
+}
+
 async function uniqueSlug(base: string): Promise<string> {
   const root = base || 'market-insight';
   for (let i = 0; i < 5; i++) {

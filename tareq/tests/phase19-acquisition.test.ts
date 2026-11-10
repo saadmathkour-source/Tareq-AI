@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { prisma } from '../src/lib/core/db.ts';
-import { publishArticle, getPublishedArticle } from '../src/lib/commercial/publishing.ts';
+import { articleProductSlug, publishArticle, getPublishedArticle } from '../src/lib/commercial/publishing.ts';
 import { createInquiry, answerInquiry } from '../src/lib/commercial/inquiries.ts';
 import { getControls, setControls } from '../src/lib/security/controls.ts';
 import { registerAllHandlers } from '../src/lib/core/handlers.ts';
@@ -89,6 +89,20 @@ test('an article with a non-HTTPS source fails QA and cannot be published', asyn
       await prisma.article.delete({ where: { id: art.id } });
     }
   });
+});
+
+test('organic article defaults to the flagship checkout only while the offer is published', async () => {
+  const product = await prisma.product.findUnique({ where: { slug: 'market-opportunity-report' } });
+  assert.ok(product, 'isolated bootstrap seeds the flagship product');
+  const before = product!.status;
+  try {
+    await prisma.product.update({ where: { id: product!.id }, data: { status: 'PUBLISHED' } });
+    assert.equal(await articleProductSlug(), 'market-opportunity-report');
+    await prisma.product.update({ where: { id: product!.id }, data: { status: 'DRAFT' } });
+    assert.equal(await articleProductSlug(), null, 'a draft product must not be advertised');
+  } finally {
+    await prisma.product.update({ where: { id: product!.id }, data: { status: before } });
+  }
 });
 
 test('an inquiry requires a valid email and a non-trivial message', async () => {

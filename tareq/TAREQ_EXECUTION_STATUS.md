@@ -15,7 +15,7 @@
 - Phase 2 frontend-to-backend audit: [`docs/PHASE2_FRONTEND_AUDIT.md`](docs/PHASE2_FRONTEND_AUDIT.md). Found that the live Insights page has no posts and the owner dashboard had no content controls despite backend routes.
 - Verified TAREQ root and default branch `main`. PR #10 (auth hardening), PR #11 (inquiry stop/retry), and PR #12 (content/inquiry dashboard) are merged; current `main` is `6e2fad798318928b5c441d582e81e0fc0fdaf181`.
 - PR #12 added bilingual owner surfaces to review sourced article drafts, explicitly confirm publishing, and inspect/answer inbound inquiries. Server permission, source QA, emergency-stop, outreach-permission and email-provider checks remain authoritative.
-- PR #13 now aligns the market-report offer with the JSON report actually delivered, makes declared report QA checks enforceable, and requires titled HTTPS source links before an article can publish. These changes are source/test evidence only.
+- PR #13 now aligns the market-report offer with the JSON report actually delivered, makes report and article QA enforceable, and links organic drafts to the flagship checkout only when that product is published. These changes are source/test evidence only.
 - Contact success copy now distinguishes recorded inquiry from delivered email; the contact page discloses stored fields and IP use for abuse prevention.
 - Capability runtime statuses now distinguish `VERIFIED_PRODUCTION`, `IMPLEMENTED_NOT_VERIFIED`, `PARTIAL`, `BACKEND_ONLY` and the other blueprint values. Current count remains 0 verified production, 19 implemented not verified, 9 partial, 72 backend-only. Historical source-only rows are not called production proof.
 - No database or production mutation in this task.
@@ -28,7 +28,7 @@
 - Public `/shop`, `/buy/market-opportunity-report`, and `/contact` rendered in the earlier Phase 0 snapshot; `/insights` then had no published articles.
 - PR #11's latest-main source adds an inquiry delivery lease (`reply_claimed_at`) and retry handling. Production still needs the additive schema field and deployment before this behavior can be assumed live.
 - Full TAREQ suite: 299/299 passed against temporary local PostgreSQL on loopback; no production credentials were inherited. Focused dashboard/capability tests: 17/17. `npm run typecheck`, `npm run build`, embedded dashboard `node --check`, and `git diff --check` passed on the merged-current-main branch.
-- GitHub reports PR #12 merged at `2026-11-10T18:29:44Z`. Its merge was not performed by this work. Follow-up PR #13 is an open draft on `fix/tareq-post-merge-test-hardening`, based on current `main`, with nine changed files, all inside `tareq/`. The focused product QA (3/3) and acquisition publish QA (4/4) passed on isolated local PostgreSQL; `npm run typecheck`, `npm run build`, and `git diff --check` passed. The full suite was not rerun. No Actions runs/status checks are present for PR #13.
+- GitHub reports PR #12 merged at `2026-11-10T18:29:44Z`. Its merge was not performed by this work. Follow-up PR #13 is an open draft on `fix/tareq-post-merge-test-hardening`, based on current `main`, with ten changed files, all inside `tareq/`. Focused product QA (3/3) and organic publishing/acquisition QA (5/5) passed on isolated local PostgreSQL; `npm run typecheck`, `npm run build`, and `git diff --check` passed. The full suite was not rerun. No Actions runs/status checks are present for PR #13.
 
 ## Current blockers
 
