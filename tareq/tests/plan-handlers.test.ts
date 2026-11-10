@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { registerAllHandlers } from '../src/lib/core/handlers.ts';
 import { registeredKinds } from '../src/lib/core/orchestrator.ts';
 import { knownTemplates, templateFor } from '../src/lib/planner/index.ts';
+import { DEFAULT_SCHEDULES } from '../src/lib/queue/scheduler.ts';
 
 /**
  * Every task kind the system can enqueue must have a handler. A kind with no
@@ -28,9 +29,13 @@ test('the plan parent task itself has a handler', () => {
   assert.ok(kinds.has('plan'), 'plan parent task must have a handler');
 });
 
-test('the scheduler seed kinds all have handlers', () => {
-  for (const kind of ['maintenance.cycle', 'maintenance.evidence_freshness']) {
-    assert.ok(kinds.has(kind), `scheduled kind "${kind}" has no handler`);
+test('every scheduled kind has a handler', () => {
+  // Derived from the schedule definitions, not a hand-kept list: adding a new
+  // scheduled kind without a handler would otherwise dead-letter silently every
+  // time its cron fires (exactly what happened to supervisor.watchdog before
+  // Phase 18 landed).
+  for (const s of DEFAULT_SCHEDULES) {
+    assert.ok(kinds.has(s.taskKind), `scheduled kind "${s.taskKind}" (${s.name}) has no handler`);
   }
 });
 
