@@ -1,5 +1,17 @@
 # TAREQ AI — Execution Status
 
+## Current first-sale work — 2026-11-11 (Asia/Aden)
+
+- PR #13 was owner-authorized, merged, and deployed as `f1e30cb6efc75010bbe5403c49761ae67d27e3ae`. Railway is online; the public homepage now leads to the shop.
+- The owner separately approved correcting the one published product row. Its copy, QA checklist and cached landing page now match source; price remains USD 149 and status remains PUBLISHED.
+- Current branch `fix/commercial-preflight` adds a runtime connection probe (OAuth + Stripe GET requests only) and a task for publishing an existing reviewed draft through the existing permission/QA/stop gates. Neither is deployed yet.
+- Checkout/fulfillment verification: 23/23 tests passed with temporary local PostgreSQL, stubbed Stripe and injected email; no production order, customer or payment was created.
+- Prepared one original organic article, `docs/commercial/first-organic-article.json`, with three public sources and product/contact links. Additional model/API spend: zero.
+- Production article insertion was blocked by automatic approval review because this particular production record needs explicit owner approval. No article was inserted or published. Content/email permissions remain unchanged.
+- Remaining owner decision: approve the reviewed production draft/publication and the bounded runtime connection check. No genuine sale has been verified.
+
+## Earlier inventory snapshot (before the approved production changes above)
+
 **Project boundary:** repository `saadmathkour-source/Tareq-AI`; verified application root `tareq/` only.
 
 **Current phase:** Phase 3 — source offer and publishing QA repairs prepared on draft PR #13; production publishing remains owner-gated.

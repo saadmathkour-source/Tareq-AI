@@ -209,5 +209,6 @@ test('the new acquisition handlers are registered', () => {
   registerAllHandlers();
   const kinds = new Set(registeredKinds());
   assert.ok(kinds.has('content.draft_article'), 'content.draft_article handler must exist');
+  assert.ok(kinds.has('content.publish_article'), 'reviewed drafts can use the real publisher without a model call');
   assert.ok(kinds.has('inquiry.answer'), 'inquiry.answer handler must exist');
 });

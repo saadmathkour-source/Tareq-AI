@@ -133,7 +133,7 @@ export async function verify(): Promise<{ ok: boolean; provider: EmailProvider; 
   if (!st.configured) return { ok: false, provider: st.provider, reason: `not configured (missing: ${st.missing.join(', ')})` };
   try {
     if (st.provider === 'resend') {
-      const res = await fetch('https://api.resend.com/domains', { headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}` } });
+      const res = await fetch('https://api.resend.com/domains', { headers: { authorization: `Bearer ${process.env.RESEND_API_KEY}` }, signal: AbortSignal.timeout(15_000) });
       return { ok: res.ok, provider: 'resend', reason: res.ok ? undefined : `HTTP ${res.status}` };
     }
     const token = await gmail.probeToken();

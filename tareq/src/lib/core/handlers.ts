@@ -30,6 +30,8 @@ import { deliverOrder } from '../commercial/delivery.ts';
 import { financialReport } from '../finance/report.ts';
 import { runWatchdog } from './supervisor.ts';
 import { optimizationReport, allocateResources, type ProductPerformance, type ModelProfile } from '../commercial/optimization.ts';
+import { verifyCommercialConnections } from '../integrations/commercial-preflight.ts';
+import { ValidationError } from './errors.ts';
 
 /** Extract a strict JSON object from a model reply, or null. */
 function tryJson<T>(text: string): T | null {
@@ -49,6 +51,16 @@ export function registerAllHandlers(): void {
 }
 
 function registerAll(): void {
+  registerHandler('integration.verify_commercial', async () => {
+    return await verifyCommercialConnections();
+  });
+  // Publish a reviewed existing draft without making a paid model call.
+  // The shared publisher retains the owner-permission, QA and stop gates.
+  registerHandler('content.publish_article', async (task) => {
+    const slug = String(task.payload['slug'] ?? '').trim();
+    if (!slug) throw new ValidationError('article slug is required');
+    return await publishArticle(slug, 'scheduled-content-agent');
+  });
   // --- maintenance ---------------------------------------------------------
   registerHandler('maintenance.cycle', async () => {
     const pruned = await pruneExpired();
