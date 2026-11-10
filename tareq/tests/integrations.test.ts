@@ -45,6 +45,7 @@ test('gmail reports configured only when all four secrets are present', () => {
 test('hubspot reports unconfigured without a token', () => {
   const saved = { ...process.env };
   delete process.env.HUBSPOT_PRIVATE_APP_TOKEN;
+  delete process.env.HUBSPOT_ACCESS_TOKEN;
   assert.equal(hubspotStatus().configured, false);
   process.env = saved;
 });
