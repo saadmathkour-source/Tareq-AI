@@ -625,6 +625,8 @@ async function renderDashboard(sessionToken) {
     esc(verification && verification.finishedAt || 'unverified') + '</p>' +
     '<p>' + pill('Email connection: ' + (checked ? (checked.connectionVerified === true ? 'verified' : 'failed') : 'unverified'), checked && checked.connectionVerified === true ? 'ok' : 'warn') + ' ' +
     pill('Email delivery: unverified', 'warn') + '</p>' +
+    '<p class="muted">' + esc(checked && checked.failureCode ? 'Failure code: ' + checked.failureCode + (checked.httpStatus ? ' (HTTP ' + checked.httpStatus + ')' : '') : '') +
+    esc(checked && checked.sendPermission ? ' · Gmail send scope: ' + checked.sendPermission : '') + '</p>' +
     '<p class="muted">' + (lang === 'ar' ? 'وجود المفاتيح لا يثبت الاتصال أو التسليم. تعرض هذه اللوحة نتيجة الفحص المحفوظ دون تشغيل فحص جديد.' : 'Configured credentials do not prove connection or delivery. This displays saved evidence without running another probe.') + '</p>';
 
   // health

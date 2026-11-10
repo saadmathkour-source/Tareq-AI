@@ -29,37 +29,74 @@ export function status(): GmailStatus {
   };
 }
 
-async function accessToken(): Promise<string> {
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    signal: AbortSignal.timeout(15_000),
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: process.env.GMAIL_CLIENT_ID!,
-      client_secret: process.env.GMAIL_CLIENT_SECRET!,
-      refresh_token: process.env.GMAIL_REFRESH_TOKEN!,
-      grant_type: 'refresh_token',
-    }),
-  });
-  const data = (await res.json()) as { access_token?: string; error_description?: string };
-  if (!res.ok || !data.access_token) {
-    throw new Error(`Gmail token exchange failed: ${data.error_description ?? res.status}`);
+export type GmailFailureCode = 'missing_config' | 'invalid_grant' | 'invalid_client' | 'unauthorized_client' |
+  'invalid_request' | 'invalid_scope' | 'access_denied' | 'admin_policy_enforced' | 'invalid_rapt' |
+  'rate_limited' | 'timeout' | 'network_error' | 'invalid_response' | 'provider_error';
+export type GmailSendPermission = 'granted' | 'missing' | 'not_reported';
+const GOOGLE_ERROR_CODES = new Set(['invalid_grant', 'invalid_client', 'unauthorized_client', 'invalid_request', 'invalid_scope', 'access_denied', 'admin_policy_enforced']);
+const SEND_SCOPES = new Set(['https://mail.google.com/', 'https://www.googleapis.com/auth/gmail.send', 'https://www.googleapis.com/auth/gmail.compose', 'https://www.googleapis.com/auth/gmail.modify']);
+
+class GmailConnectionError extends Error {
+  readonly code: GmailFailureCode;
+  readonly httpStatus?: number;
+  constructor(code: GmailFailureCode, httpStatus?: number) {
+    // Do not copy Google's error_description or arbitrary response text into logs.
+    super(`Gmail connection failed: ${code}`);
+    this.code = code;
+    this.httpStatus = httpStatus;
   }
-  return data.access_token;
+}
+
+async function tokenMetadata(): Promise<{ token: string; sendPermission: GmailSendPermission }> {
+  let res: Response;
+  try {
+    res = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      signal: AbortSignal.timeout(15_000),
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: process.env.GMAIL_CLIENT_ID!,
+        client_secret: process.env.GMAIL_CLIENT_SECRET!,
+        refresh_token: process.env.GMAIL_REFRESH_TOKEN!,
+        grant_type: 'refresh_token',
+      }),
+    });
+  } catch (error) {
+    const name = error instanceof Error ? error.name : '';
+    throw new GmailConnectionError(name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'network_error');
+  }
+  let data: { access_token?: unknown; scope?: unknown; error?: unknown; error_subtype?: unknown };
+  try { data = await res.json() as typeof data; }
+  catch { throw new GmailConnectionError('invalid_response', res.status); }
+  if (!data || typeof data !== 'object') throw new GmailConnectionError('invalid_response', res.status);
+  if (!res.ok) {
+    const code: GmailFailureCode = data.error_subtype === 'invalid_rapt' ? 'invalid_rapt'
+      : typeof data.error === 'string' && GOOGLE_ERROR_CODES.has(data.error) ? data.error as GmailFailureCode
+      : res.status === 429 ? 'rate_limited' : 'provider_error';
+    throw new GmailConnectionError(code, res.status);
+  }
+  if (typeof data.access_token !== 'string' || !data.access_token) throw new GmailConnectionError('invalid_response', res.status);
+  const scopes = typeof data.scope === 'string' ? data.scope.split(/\s+/).filter(Boolean) : null;
+  return { token: data.access_token, sendPermission: scopes ? (scopes.some((scope) => SEND_SCOPES.has(scope)) ? 'granted' : 'missing') : 'not_reported' };
+}
+
+async function accessToken(): Promise<string> {
+  return (await tokenMetadata()).token;
 }
 
 /**
  * Verify the OAuth credentials by exchanging the refresh token for an access
  * token. This proves the credentials work without sending or drafting anything.
  */
-export async function probeToken(): Promise<{ ok: boolean; reason?: string }> {
+export async function probeToken(): Promise<{ ok: boolean; reason?: string; code?: GmailFailureCode; httpStatus?: number; sendPermission?: GmailSendPermission }> {
   const st = status();
-  if (!st.configured) return { ok: false, reason: `Gmail not configured (missing: ${st.missing.join(', ')})` };
+  if (!st.configured) return { ok: false, code: 'missing_config', reason: 'Gmail credentials are incomplete' };
   try {
-    await accessToken();
-    return { ok: true };
+    const metadata = await tokenMetadata();
+    return { ok: true, sendPermission: metadata.sendPermission };
   } catch (err) {
-    return { ok: false, reason: (err as Error).message };
+    const failure = err instanceof GmailConnectionError ? err : new GmailConnectionError('provider_error');
+    return { ok: false, code: failure.code, httpStatus: failure.httpStatus, reason: failure.message };
   }
 }
 

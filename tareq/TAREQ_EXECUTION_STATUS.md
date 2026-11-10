@@ -1,5 +1,14 @@
 # TAREQ AI — Execution Status
 
+## Gmail production diagnosis — owner request, 2026-11-11 (Asia/Aden)
+
+- Railway metadata confirms all four existing `GMAIL_*` variables are present on the verified TAREQ service. OAuth access withholds their values. No credential was replaced or requested in chat.
+- The previous probe persisted only a generic failure, which cannot distinguish invalid client/grant from a network failure. It was premature to prescribe reauthorization without that distinction. This repair adds allowlisted error codes and HTTP status, suppresses upstream descriptions and tokens, and distinguishes reported send scope from authenticated connection and actual delivery.
+- Added the email-only `integration.verify_email` handler so the newly owner-requested probe can run once without repeating Stripe reads, sending mail, creating drafts, calling a model, or changing permissions. The existing protected integration panel reads the latest saved diagnostic; it never launches another check by viewing the page.
+- Focused verification: 20/20 Gmail/preflight/dashboard-session checks; isolated API/auth checks and typecheck/build are recorded with the repair PR. The initial test run caught unsupported strip-only TypeScript parameter properties; these were replaced with explicit fields before upload. No production change used the rejected syntax.
+- Source scope: `src/lib/integrations/{gmail.ts,email.ts,commercial-preflight.ts}`, `src/lib/core/handlers.ts`, `src/app/{server.ts,dashboard.html}`, `tests/gmail-connection.test.ts`, this log. No migration, credential update, permission activation, new service or paid spend.
+- The repair PR is the durable record of its subsequent merge, deployment and single production diagnostic result. Existing 100 registry entries retain their evidence-based status; this task does not relabel them as working production features.
+
 ## Current verified state — 2026-11-11 (Asia/Aden)
 
 - Owner-entry repair: restore the sign-in shell at `/` and keep `/dashboard`; public sales remain at `/shop` and `/buy/market-opportunity-report`. Add labelled native form submission, suppress duplicate login submits and clear the password field after authentication. Backend session authentication is unchanged.
