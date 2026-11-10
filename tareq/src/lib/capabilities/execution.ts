@@ -175,7 +175,7 @@ export function evaluateAnalyticalCapability(n: number, args: unknown[]) {
     result = { decisions, remainingUsd: governor.remaining() };
   } else {
     const module = spec[0] === 'commercial' ? commercial : advanced;
-    const functionValue = (module as Record<string, unknown>)[spec[1]];
+    const functionValue = (module as unknown as Record<string, unknown>)[spec[1]];
     if (typeof functionValue !== 'function') throw new Error('analytical engine is unavailable');
     result = (functionValue as (...values: unknown[]) => unknown)(...args);
   }
