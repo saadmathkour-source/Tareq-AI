@@ -255,6 +255,36 @@ test('markPaid flips the order to PAID and enqueues delivery exactly once', asyn
   assert.equal(tasks, 1, 'delivery is enqueued exactly once');
 });
 
+test('replayed payment recreates a delivery task missing after a worker crash, once', async () => {
+  const order = await createOrder({ productSlug: 'market-opportunity-report', requirements: { topic: 'recover' } });
+  orderIds.push(order.id);
+  const key = `${MARK}:deliver-recovered:${order.id}`;
+  // Simulate the exact crash window: PAID committed, but the worker queue has
+  // not yet received its task. No Stripe API or real payment is used.
+  await prisma.order.update({ where: { id: order.id }, data: { status: 'PAID', paidAt: new Date() } });
+  assert.equal(await prisma.task.count({ where: { idempotencyKey: key } }), 0);
+  const restored = await markPaid({ orderId: order.id, idempotencyKey: key });
+  assert.equal(restored.alreadyPaid, true);
+  assert.ok(restored.deliveryTaskId);
+  assert.equal(await prisma.task.count({ where: { idempotencyKey: key } }), 1);
+  const again = await markPaid({ orderId: order.id, idempotencyKey: key });
+  assert.equal(again.deliveryTaskId, restored.deliveryTaskId);
+  assert.equal(await prisma.task.count({ where: { idempotencyKey: key } }), 1);
+});
+
+test('refunded and cancelled orders cannot be marked paid by replay', async () => {
+  for (const terminal of ['REFUNDED', 'CANCELLED'] as const) {
+    const order = await createOrder({ productSlug: 'market-opportunity-report', requirements: { topic: terminal } });
+    orderIds.push(order.id);
+    await prisma.order.update({ where: { id: order.id }, data: { status: terminal } });
+    const key = `${MARK}:terminal:${order.id}`;
+    await assert.rejects(() => markPaid({ orderId: order.id, idempotencyKey: key }), /cannot reactivate/);
+    const unchanged = await prisma.order.findUniqueOrThrow({ where: { id: order.id } });
+    assert.equal(unchanged.status, terminal);
+    assert.equal(await prisma.task.count({ where: { idempotencyKey: key } }), 0);
+  }
+});
+
 test('delivery refuses an order that is not paid', async () => {
   const order = await createOrder({ productSlug: 'market-opportunity-report', requirements: { topic: 'unpaid' } });
   orderIds.push(order.id);
