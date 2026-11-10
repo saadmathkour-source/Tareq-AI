@@ -177,7 +177,7 @@ test('hubspot writes refuse when unconfigured instead of pretending', async () =
 });
 
 test('stripe event classifier never treats a test-mode payment as revenue', () => {
-  const base = { id: 'evt_1', type: 'checkout.session.completed', data: { object: { amount_total: 4900, id: 'cs_1' } } };
+  const base = { id: 'evt_1', type: 'checkout.session.completed', data: { object: { amount_total: 4900, id: 'cs_1', currency: 'usd', payment_status: 'paid' } } };
   // livemode absent -> treated as test, never revenue
   assert.equal(classifyStripeEvent(base).action, 'test');
   // explicit test mode
@@ -186,6 +186,15 @@ test('stripe event classifier never treats a test-mode payment as revenue', () =
   const live = classifyStripeEvent({ ...base, livemode: true });
   assert.equal(live.action, 'revenue');
   assert.equal((live as { amountUsd: number }).amountUsd, 49);
+});
+
+test('Stripe never recognises malformed or incomplete paid events as revenue', () => {
+  const base = { id: 'evt_guard', type: 'checkout.session.completed', livemode: true,
+    data: { object: { id: 'cs_guard', amount_total: 14900, currency: 'usd', payment_status: 'paid' } } };
+  assert.equal(classifyStripeEvent(base).action, 'revenue');
+  assert.equal(classifyStripeEvent({ ...base, data: { object: { id: 'cs_guard', amount_total: 14900, currency: 'usd' } } }).action, 'ignore');
+  assert.equal(classifyStripeEvent({ ...base, data: { object: { id: 'cs_guard', amount_total: 14900, payment_status: 'paid' } } }).action, 'ignore');
+  assert.equal(classifyStripeEvent({ ...base, data: { object: { id: 'cs_guard', amount_total: 0, currency: 'usd', payment_status: 'paid' } } }).action, 'ignore');
 });
 
 test('stripe event classifier routes failures and unknown types away from revenue', () => {
@@ -228,7 +237,7 @@ test('stripe classifier routes async success to revenue and async failure away f
     id: 'evt_a1',
     type: 'checkout.session.async_payment_succeeded',
     livemode: true,
-    data: { object: { amount_total: 9900, id: 'cs_a1', payment_status: 'paid' } },
+    data: { object: { amount_total: 9900, id: 'cs_a1', currency: 'usd', payment_status: 'paid' } },
   });
   assert.equal(ok.action, 'revenue');
   const bad = classifyStripeEvent({ id: 'evt_a2', type: 'checkout.session.async_payment_failed', livemode: true, data: { object: { amount_total: 9900, id: 'cs_a2' } } });

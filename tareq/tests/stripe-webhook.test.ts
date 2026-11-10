@@ -246,6 +246,19 @@ test('a refund reduces net revenue and marks the order REFUNDED', async () => {
 
   const refunded = await prisma.order.findUnique({ where: { id: orderId } });
   assert.equal(refunded!.status, 'REFUNDED');
+  const beforeReplayTasks = await prisma.task.count({
+    where: { idempotencyKey: `${MARK}:order.deliver:${orderId}` },
+  });
+  // A delayed/replayed, signature-valid completed event must NEVER re-open a
+  // refunded order, nor trigger a second delivery, nor double-record revenue.
+  const replay = await handleWebhook(paid.body, sign(paid.body), { deliveryKeyPrefix: `${MARK}:` });
+  assert.equal(replay.handled, true);
+  assert.equal(replay.recorded, false);
+  assert.match(String(replay.reason), /refunded/);
+  assert.equal((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).status, 'REFUNDED');
+  assert.equal(await prisma.task.count({
+    where: { idempotencyKey: `${MARK}:order.deliver:${orderId}` },
+  }), beforeReplayTasks);
 });
 
 test('a dispute reduces net revenue and is never ordinary revenue', async () => {

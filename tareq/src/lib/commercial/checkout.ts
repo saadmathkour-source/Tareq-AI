@@ -72,6 +72,10 @@ export async function createPublicCheckout(
   opts: { reuseWindowMs?: number } = {},
 ): Promise<PublicCheckoutResult> {
   const email = normalizeEmail(input.email);
+  // Preserve the buyer's requested scope. A second order for another market,
+  // niche or topic must never silently reuse an earlier checkout link merely
+  // because the email and product match.
+  const requirements = sanitizeRequirements(input.requirements);
   const product = await prisma.product.findUnique({ where: { slug: input.slug } });
   if (!product || product.status !== 'PUBLISHED') throw new ValidationError(`Product not available: ${input.slug}`);
 
@@ -82,6 +86,7 @@ export async function createPublicCheckout(
       productId: product.id,
       customerEmail: email,
       status: 'AWAITING_PAYMENT',
+      requirements: { equals: requirements as never },
       checkoutUrl: { not: null },
       stripeSessionId: { not: null },
       createdAt: { gte: since },
@@ -92,7 +97,6 @@ export async function createPublicCheckout(
     return { orderId: reusable.id, url: reusable.checkoutUrl, sessionId: reusable.stripeSessionId, reused: true };
   }
 
-  const requirements = sanitizeRequirements(input.requirements);
   const order = await prisma.order.create({
     data: {
       productId: product.id,
