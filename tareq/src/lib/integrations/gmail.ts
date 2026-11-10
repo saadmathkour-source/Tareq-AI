@@ -32,6 +32,7 @@ export function status(): GmailStatus {
 async function accessToken(): Promise<string> {
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
+    signal: AbortSignal.timeout(15_000),
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       client_id: process.env.GMAIL_CLIENT_ID!,
