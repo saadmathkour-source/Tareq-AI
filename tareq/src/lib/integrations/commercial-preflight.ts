@@ -1,5 +1,6 @@
 import * as email from './email.ts';
 import { status as stripeStatus } from './stripe.ts';
+import { verifyConnection as verifyHubSpot } from './hubspot.ts';
 
 /** One email-only probe; persist allowlisted metadata, never tokens or upstream text. */
 export async function verifyEmailConnection() {
@@ -24,6 +25,7 @@ export async function verifyEmailConnection() {
 /** Verify the configured connections without a payment, message, or model call. */
 export async function verifyCommercialConnections() {
   const emailCheck = await verifyEmailConnection();
+  const hubspot = await verifyHubSpot();
   const st = stripeStatus();
   const stripe = {
     ...st,
@@ -71,7 +73,8 @@ export async function verifyCommercialConnections() {
   return {
     checkedAt: new Date().toISOString(),
     email: emailCheck.email,
+    hubspot,
     stripe,
-    note: 'Connection checks only. No message, checkout, payment or customer record was created.',
+    note: 'Read-only connection checks only. No CRM record, message, checkout, payment or customer record was created.',
   };
 }
