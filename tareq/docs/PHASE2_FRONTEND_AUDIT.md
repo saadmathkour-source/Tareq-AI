@@ -20,7 +20,7 @@
 | Visible action | UI handler | API path | Audit result |
 |---|---|---|---|
 | Sign in / out | `loginBtn`, `logoutBtn` | `/auth/login`, `/auth/logout` | Code wired; login not tested |
-| Language / refresh | `langBtn`, `refreshBtn` | Refresh calls 20 endpoints, including `/health`, `/mode`, `/capabilities`, `/tasks`, `/approvals`, `/finance`, `/audit`, `/leads`, `/usage`, `/errors`, `/config`, `/research`, `/integrations`, `/commercial/overview`, `/products`, `/orders`, `/supervisor`, `/controls`, `/optimization`, `/readiness` | No `/content` or `/inquiries` call existed before the repair |
+| Language / refresh | `langBtn`, `refreshBtn` | Refresh calls 22 endpoints, including `/health`, `/mode`, `/capabilities`, `/tasks`, `/approvals`, `/finance`, `/audit`, `/leads`, `/usage`, `/errors`, `/config`, `/research`, `/integrations`, `/commercial/overview`, `/products`, `/orders`, `/supervisor`, `/controls`, `/optimization`, `/readiness`, `/content`, `/inquiries` | `/content` and `/inquiries` are now included in the authenticated refresh |
 | Mode apply | `modeApply` | `POST /mode` | Code wired; no live action |
 | Plan / bounded mission | `planBtn`, `missionBtn` | `POST /plan`, `POST /mission` | Code wired; no live action |
 | Seed catalog | `seedProductsBtn` | `POST /products/seed` | Code wired; code says seeding remains draft-only |
@@ -29,7 +29,8 @@
 | Approval / cancel | delegated clicks | `POST /approvals/decide`, `POST /tasks/cancel` | Code wired; owner-only; no live action |
 | Watchdog / resolve | `watchdogBtn`, delegated click | `POST /supervisor/run`, `POST /supervisor/resolve` | Code wired; no live action |
 | Save control settings | `saveControlsBtn` | `POST /controls` | Code wired; backend refuses to enable controls it cannot enforce |
-| Content / inquiries | No page or event handler in the dashboard | Backend has `GET /content`, `POST /content/draft`, `POST /content/publish`, `GET /inquiries`, `POST /inquiries/answer` | Concrete missing owner operating surface; production insights page is empty |
+| Content | `contentDraftBtn`, `data-publish-article` | `GET /content`, `POST /content/draft`, `POST /content/publish` | Owner can request a sourced draft, inspect escaped text/source URLs, and confirm publish; server gates remain authoritative |
+| Inquiries | `data-answer-inquiry` | `GET /inquiries`, `POST /inquiries/answer` | Owner can inspect the submitted question and saved answer; processing asks confirmation and may email only when permission and provider are enabled |
 
 ## States, authentication, and responsive behavior
 
@@ -40,14 +41,16 @@
 
 ## Backend paths without owner UI controls
 
-At minimum, the authenticated API paths with no matching dashboard fetch/control are: `/content`, `/content/draft`, `/content/publish`, `/inquiries`, `/inquiries/answer`, `/payments/link`, `/resume`, `/finance/report`, `/products/publish`, `/products/landing`, `POST /orders`, and `/orders/artifact`. Some may be intentionally internal/API-only; the absence of UI means they are not established as usable commercial operations for the owner.
+At minimum, the authenticated API paths with no matching dashboard fetch/control remain: `/payments/link`, `/resume`, `/finance/report`, `/products/publish`, `/products/landing`, `POST /orders`, and `/orders/artifact`. Some may be intentionally internal/API-only; their absence from the dashboard means their owner operating workflow is not established.
 
 ## First commercial blocker and smallest repair
 
 **P0: organic publishing has no owner operating surface and production contains no articles.** The source has a sourced draft engine, QA gate, permission check, emergency-stop check, and publish endpoint. The schedule only drafts. The dashboard neither loads drafts nor gives the owner a review/publish action. `GET /insights` live confirms there are no published articles. This is stronger evidence than inferring publishing failure from code alone.
 
-**Smallest repair implemented on the local branch:** dashboard now loads `/content`, lists draft and published articles, reveals escaped article text plus source URLs for review, lets the owner request a sourced draft, and presents a confirmation before calling the existing publish endpoint. Server-side permission, source QA and emergency-stop gates are unchanged. This is local source only and is not deployed. Follow-up: add inquiry review/reply UI and verify authorized email delivery separately.
+**Smallest repair implemented on PR #12:** dashboard now loads `/content` and `/inquiries`; it lists sourced articles for review and confirmation before publish, and provides an owner-only inquiry view with escaped question/answer text and a confirmed action for new inquiries. Server-side permission, source QA, emergency-stop and conditional email controls remain authoritative. The public contact response now accurately distinguishes stored inquiries from delivered email and discloses IP use for abuse prevention. None of this is deployed.
+
+**Remaining acquisition blocker:** email delivery is not verified, and a failed email after an inquiry is marked `ANSWERED` cannot yet be retried. This is documented rather than presented as a working retry path.
 
 ## UI audit conclusion
 
-Source-to-UI audit is complete for route, direct API-call, handler, basic state, and auth mapping. Mobile rendering, owner-only control behavior against production settings, and the authenticated full UI remain unverified because there was no owner session or Railway runtime access. Focused local regression coverage was added for the content controls; results appear in the execution status.
+Source-to-UI audit covers route, direct API-call, handler, basic state, and auth mapping. Mobile rendering, owner-only control behavior against current production settings, and authenticated production UI remain unverified because this pass had no owner session or Railway runtime access. Focused regression coverage for content and inquiry controls is recorded in the execution status.
