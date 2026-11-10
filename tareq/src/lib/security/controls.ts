@@ -52,6 +52,41 @@ export const DEFAULT_CONTROLS: Controls = {
   emergencyStop: false,
 };
 
+/**
+ * Which controls are enforced at a real action point, and which are declared but
+ * have no action path yet. This is deliberately explicit so the control surface
+ * can never present an unenforced switch as a live security guarantee:
+ *
+ *  - IMPLEMENTED: the matching `assert*` is called at the point of action.
+ *  - NOT_IMPLEMENTED: no action path exists yet. `setControls` REFUSES to turn
+ *    such a switch ON (fail-closed), and `controlStatus()` reports it so the
+ *    dashboard/docs can label it "not implemented" instead of "on".
+ *
+ * When a real action path for one of these is added, move it to IMPLEMENTED in
+ * the same commit that adds the enforcement call.
+ */
+export const IMPLEMENTED_CONTROLS: Array<keyof Controls> = [
+  'dailyBudgetUsd',
+  'monthlyBudgetUsd',
+  'perTaskCostCapUsd',
+  'modelCallCapPerDay',
+  'publishingAllowed',
+  'outreachAllowed',
+  'emergencyStop',
+];
+
+export const NOT_IMPLEMENTED_CONTROLS: Array<keyof Controls> = [
+  'marketingAllowed',
+  'financialOpsAllowed',
+  'maxDiscountPct',
+  'adSpendCapUsd',
+];
+
+/** The implementation status of every control, for the API/dashboard/docs. */
+export function controlStatus(): { implemented: Array<keyof Controls>; notImplemented: Array<keyof Controls> } {
+  return { implemented: IMPLEMENTED_CONTROLS, notImplemented: NOT_IMPLEMENTED_CONTROLS };
+}
+
 const KEY = 'operating_controls';
 
 /** The current controls, defaults merged with any owner override. */
@@ -79,10 +114,23 @@ export async function setControls(patch: Partial<Controls>, actorId: string): Pr
     if (value === undefined) continue;
     if (typeof DEFAULT_CONTROLS[key] === 'boolean') {
       if (typeof value !== 'boolean') throw new ForbiddenError(`control ${key} must be a boolean`);
+      // Fail closed: a permission switch with no action path cannot be turned
+      // on. Turning it on would imply an enforcement that does not exist.
+      if (value === true && NOT_IMPLEMENTED_CONTROLS.includes(key)) {
+        throw new ForbiddenError(
+          `control ${key} is NOT IMPLEMENTED: there is no action path to enforce it yet, so it cannot be enabled`,
+        );
+      }
       (next[key] as boolean) = value;
     } else {
       const n = Number(value);
       if (!Number.isFinite(n) || n < 0) throw new ForbiddenError(`control ${key} must be a non-negative number`);
+      // A limit with no action path cannot be raised above 0 (0 = the safe no-op).
+      if (n > 0 && NOT_IMPLEMENTED_CONTROLS.includes(key)) {
+        throw new ForbiddenError(
+          `control ${key} is NOT IMPLEMENTED: there is no action path to enforce it yet, so it must stay 0`,
+        );
+      }
       (next[key] as number) = n;
     }
   }
@@ -126,10 +174,30 @@ export async function windowUsage(): Promise<{ todayUsd: number; monthUsd: numbe
   return { todayUsd: day.usd, monthUsd: month.usd, callsToday: day.calls };
 }
 
-/** Throw before any acting work if the owner has pulled the emergency stop. */
+/**
+ * Throw before any acting work if the owner has pulled the emergency stop.
+ *
+ * Fails CLOSED: if the control store cannot be read, we cannot prove the stop is
+ * clear, so we treat the system as stopped rather than let work proceed.
+ */
 export async function assertNotStopped(): Promise<void> {
-  const c = await getControls();
-  if (c.emergencyStop) throw new ForbiddenError('emergency stop is engaged; all acting work is halted');
+  if (await isEmergencyStopped()) {
+    throw new ForbiddenError('emergency stop is engaged; all acting work is halted');
+  }
+}
+
+/**
+ * Whether acting work must halt. Returns `true` (halt) when the stop is engaged
+ * OR when the control state cannot be read — a database/control-store failure
+ * must never be interpreted as "not stopped". Used by the worker loop.
+ */
+export async function isEmergencyStopped(): Promise<boolean> {
+  try {
+    const c = await getControls();
+    return c.emergencyStop;
+  } catch {
+    return true;
+  }
 }
 
 /** Enforce the per-task cost ceiling and the daily/monthly windows for a projected spend. */

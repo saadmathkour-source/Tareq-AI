@@ -1,6 +1,8 @@
 import { prisma } from '../core/db.ts';
 import { audit } from '../core/audit.ts';
 import { ValidationError } from '../core/errors.ts';
+import { authorize } from '../security/permissions.ts';
+import { assertPublishingAllowed, assertNotStopped } from '../security/controls.ts';
 
 /**
  * Product factory (Phase 16, group 3).
@@ -8,8 +10,13 @@ import { ValidationError } from '../core/errors.ts';
  * The catalog below is the concrete result of the opportunity selection: each
  * entry names a real problem, the deliverable the buyer receives, how it is
  * produced, what the buyer must supply, the honest limits, the QA checks that
- * must pass before delivery, and the price/cost/margin. Only products with
- * `status: 'PUBLISHED'` are offered for sale; the rest are candidates.
+ * must pass before delivery, and the price/cost/margin.
+ *
+ * Catalog rows are DESIGN DATA only. `seedProducts()` always writes them as
+ * `DRAFT`, so seeding the catalog can never put a product up for sale — a
+ * product only reaches `PUBLISHED` through `publishProduct()`, which enforces the
+ * owner's `publishingAllowed` control AND the `offer.publish` approval. Only a
+ * `PUBLISHED` product is offered for sale; the rest are candidates.
  *
  * Numbers are estimates at design time; realised costs are recorded in the
  * ledger (AI_COST / DELIVERY_COST) and verified revenue only ever comes from a
@@ -36,9 +43,11 @@ export interface ProductDefinition {
 }
 
 /**
- * The published product: a source-cited market opportunity report. It is
+ * The flagship product: a source-cited market opportunity report. It is
  * deliverable end-to-end with the research + commercial engines already in the
- * repo, so nothing about it is aspirational.
+ * repo, so nothing about it is aspirational. `status` here mirrors the catalog
+ * seed intent (DRAFT): `seedProducts()` never publishes, so this product is
+ * created as a draft and only goes live through the gated `publishProduct()`.
  */
 export const MARKET_OPPORTUNITY_REPORT: ProductDefinition = {
   slug: 'market-opportunity-report',
@@ -83,7 +92,7 @@ export const MARKET_OPPORTUNITY_REPORT: ProductDefinition = {
   ],
   priceUsd: 149,
   costUsd: 1.5,
-  status: 'PUBLISHED',
+  status: 'DRAFT',
   claimRefs: [],
 };
 
@@ -130,7 +139,15 @@ function marginPct(priceUsd: number, costUsd: number): number {
   return Math.round(((priceUsd - costUsd) / priceUsd) * 100);
 }
 
-/** Upsert the catalog into the database. Idempotent. */
+/**
+ * Upsert the catalog into the database. Idempotent.
+ *
+ * Every product is written as `DRAFT`. Seeding is a *content* operation, never a
+ * publishing one: it must not be able to put a product on sale, whether it runs
+ * from the owner route, the bootstrap script, or the scheduled
+ * `product.seed_catalog` task. Publishing is a separate, owner-gated step
+ * (`publishProduct`). The upsert never clobbers a live status the owner set.
+ */
 export async function seedProducts(): Promise<number> {
   let n = 0;
   for (const def of CATALOG) {
@@ -150,7 +167,8 @@ export async function seedProducts(): Promise<number> {
         priceUsd: def.priceUsd,
         costUsd: def.costUsd,
         marginPct: marginPct(def.priceUsd, def.costUsd),
-        status: def.status,
+        // Always DRAFT: seeding must never publish (see the doc comment above).
+        status: 'DRAFT',
         claimRefs: (def.claimRefs ?? []) as never,
       },
       // Never clobber a live price/status set by the owner; only refresh copy.
@@ -170,6 +188,59 @@ export async function seedProducts(): Promise<number> {
   }
   await audit({ actorType: 'system', action: 'products.seeded', metadata: { count: n } });
   return n;
+}
+
+/**
+ * The single authorised path from DRAFT to PUBLISHED.
+ *
+ * Publishing puts a product up for sale for real money, so it is gated on BOTH:
+ *   1. the owner's `publishingAllowed` control (off by default), and
+ *   2. the `offer.publish` approval — a sensitive action that only an owner can
+ *      approve. An autonomous caller (the agent or a scheduled task) that has no
+ *      approved `offer.publish` approval is refused, not silently allowed.
+ *
+ * The outcome (allowed or refused) is written to the append-only audit log with
+ * the actor, the product id and the result, so the decision is always traceable.
+ */
+export async function publishProduct(
+  slug: string,
+  actor: { actorType: 'owner' | 'agent' | 'system'; actorId?: string; approvalId?: string },
+): Promise<void> {
+  const product = await prisma.product.findUnique({ where: { slug } });
+  if (!product) throw new ValidationError(`Product not found: ${slug}`);
+
+  const base = { slug, productId: product.id, actorType: actor.actorType, actorId: actor.actorId ?? null };
+
+  // 1. Emergency stop halts all acting work, publishing included.
+  try {
+    await assertNotStopped();
+  } catch (err) {
+    await audit({ actorType: actor.actorType, actorId: actor.actorId, action: 'product.publish_refused', target: product.id, severity: 'warn', metadata: { ...base, reason: (err as Error).message } });
+    throw err;
+  }
+
+  // 2. The owner's publishing control must be ON. Off (the default) => refused.
+  try {
+    await assertPublishingAllowed();
+  } catch (err) {
+    await audit({ actorType: actor.actorType, actorId: actor.actorId, action: 'product.publish_refused', target: product.id, severity: 'warn', metadata: { ...base, reason: (err as Error).message } });
+    throw err;
+  }
+
+  // 3. Authorisation/approval: `offer.publish` always requires an owner approval.
+  //    The owner passes through; an agent without an approved approval is refused
+  //    (authorize() raises ApprovalRequiredError and creates a pending request).
+  try {
+    await authorize({ action: 'offer.publish', actorType: actor.actorType, actorId: actor.actorId, approvalId: actor.approvalId, reason: `Publish product ${slug}` });
+  } catch (err) {
+    await audit({ actorType: actor.actorType, actorId: actor.actorId, action: 'product.publish_refused', target: product.id, severity: 'warn', metadata: { ...base, reason: (err as Error).message } });
+    throw err;
+  }
+
+  // 4. Authorised: make it live. `updateMany` with a status guard keeps the write
+  //    honest even if the row changed since we read it.
+  await prisma.product.updateMany({ where: { id: product.id, status: { not: 'ARCHIVED' } }, data: { status: 'PUBLISHED' } });
+  await audit({ actorType: actor.actorType, actorId: actor.actorId, action: 'product.published', target: product.id, severity: 'warn', metadata: { ...base, result: 'PUBLISHED' } });
 }
 
 export async function getProduct(slug: string) {

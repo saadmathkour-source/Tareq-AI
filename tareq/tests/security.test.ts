@@ -8,6 +8,7 @@ import { computeHash } from '../src/lib/core/audit.ts';
 import { cronMatches, nextCron } from '../src/lib/queue/scheduler.ts';
 import { CircuitBreaker } from '../src/lib/commercial/engines.ts';
 import { UnsupportedClaimError } from '../src/lib/memory/evidence.ts';
+import { checkLoginAllowed, recordLoginFailure, recordLoginSuccess, resetLoginGuard } from '../src/lib/security/login-guard.ts';
 
 // --- Secret redaction --------------------------------------------------------
 test('redaction removes credential URLs and token shapes from log text', () => {
@@ -142,4 +143,40 @@ test('password hash is not reversible and is unique per call', () => {
   assert.notEqual(h1, h2, 'salt must differ');
   assert.ok(!h1.includes('samepassword'));
   assert.equal(createHash('sha256').update('x').digest('hex').length, 64);
+});
+
+// --- Login abuse guard -------------------------------------------------------
+test('the login guard allows attempts, then locks the key with backoff after repeated failures', () => {
+  resetLoginGuard();
+  const key = 'ip-1';
+  const t0 = 1_000_000;
+  assert.equal(checkLoginAllowed(key, t0).ok, true, 'first attempt is allowed');
+  for (let i = 0; i < 5; i++) recordLoginFailure(key, t0 + i);
+  const blocked = checkLoginAllowed(key, t0 + 5);
+  assert.equal(blocked.ok, false, 'after the failure threshold the key is locked');
+  assert.ok(blocked.retryAfterMs > 0);
+  // The lockout expires.
+  assert.equal(checkLoginAllowed(key, t0 + 5 + blocked.retryAfterMs + 1).ok, true, 'the lockout is temporary');
+});
+
+test('a successful login clears the failure state for the key', () => {
+  resetLoginGuard();
+  const key = 'ip-2';
+  const t0 = 2_000_000;
+  recordLoginFailure(key, t0);
+  recordLoginFailure(key, t0 + 1);
+  recordLoginSuccess(key);
+  // Fresh start: a couple of failures no longer accumulate toward a lockout.
+  recordLoginFailure(key, t0 + 2);
+  assert.equal(checkLoginAllowed(key, t0 + 3).ok, true);
+});
+
+test('the login guard rate-limits a flood from one key', () => {
+  resetLoginGuard();
+  const key = 'ip-3';
+  const t0 = 3_000_000;
+  let allowed = 0;
+  for (let i = 0; i < 40; i++) if (checkLoginAllowed(key, t0 + i).ok) allowed++;
+  assert.ok(allowed <= 20, `a flood must be bounded (allowed=${allowed})`);
+  assert.ok(allowed >= 1);
 });

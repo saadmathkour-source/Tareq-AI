@@ -1,6 +1,7 @@
 import { prisma } from '../core/db.ts';
 import { think } from '../providers/router.ts';
 import { authorize } from '../security/permissions.ts';
+import { assertOutreachAllowed, assertNotStopped } from '../security/controls.ts';
 import { audit } from '../core/audit.ts';
 import { ValidationError } from '../core/errors.ts';
 
@@ -72,6 +73,10 @@ export async function draft(input: DraftInput): Promise<string> {
 export async function submitForApproval(draftId: string): Promise<string> {
   const draftRow = await prisma.outreachDraft.findUnique({ where: { id: draftId } });
   if (!draftRow) throw new ValidationError('Draft not found');
+  // Owner control: outreach must be permitted before a send is even queued for
+  // approval. Off by default, so no autonomous outreach reaches the approval step
+  // until the owner turns it on.
+  await assertOutreachAllowed();
   const approvalId = await authorize({
     action: 'outreach.send',
     actorType: 'agent',
@@ -93,6 +98,10 @@ export async function submitForApproval(draftId: string): Promise<string> {
  * after an approved channel delivers it.
  */
 export async function markSent(draftId: string, approvalId: string, actorId: string): Promise<void> {
+  // Re-check at the mutation point: the owner may have pulled the emergency stop
+  // or switched outreach off between approval and this send.
+  await assertNotStopped();
+  await assertOutreachAllowed();
   const approval = await prisma.approval.findUnique({ where: { id: approvalId } });
   if (!approval || approval.status !== 'APPROVED' || approval.action !== 'outreach.send') {
     throw new ValidationError('Sending requires an APPROVED outreach.send approval');

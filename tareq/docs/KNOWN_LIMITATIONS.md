@@ -38,3 +38,16 @@ Honest, current limitations. None of these is hidden from the dashboard.
     crashed tasks and raises findings, but if the worker process itself is dead
     nothing reclaims it — that needs an external cron/heartbeat monitor. Findings
     are surfaced on the dashboard; they are not yet pushed to an external channel.
+11. **Owner-control enforcement is honest about what is wired.** Of the permission
+    switches, only `publishingAllowed` and `outreachAllowed` currently have an
+    action path; `marketingAllowed`, `financialOpsAllowed`, `maxDiscountPct` and
+    `adSpendCapUsd` are declared but not yet enforced anywhere. `setControls`
+    refuses to turn an unenforced switch on (so it can never be shown as "on"),
+    and `GET /controls` reports the implemented vs not-implemented split. These
+    remain no-ops until the code that would enforce them is added.
+12. **The owner-login abuse guard is per-process.** `src/lib/security/login-guard.ts`
+    bounds password guessing with a fixed-window rate limit and a failure lockout,
+    but the counters live in memory. With more than one instance, each holds its
+    own counters, so the effective limit is per-instance, not global. A shared
+    store (Redis) would make it global; the guard is still a strict improvement
+    over an unthrottled login endpoint.

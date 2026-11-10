@@ -13,7 +13,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { readFileSync } from 'node:fs';
 import { env } from '../lib/env.ts';
 import { logger } from '../lib/core/logger.ts';
-import { authenticate, login, logout, revokeAllSessions, type OwnerIdentity } from '../lib/security/owner-auth.ts';
+import { authenticate, assertSessionLive, login, logout, revokeAllSessions, type OwnerIdentity } from '../lib/security/owner-auth.ts';
 import { currentMode, setMode, type OperatingMode } from '../lib/security/permissions.ts';
 import { health, capabilityTable } from '../lib/observability/health.ts';
 import { stats as queueStats, cancel } from '../lib/queue/tasks.ts';
@@ -30,15 +30,16 @@ import { status as gmailStatus } from '../lib/integrations/gmail.ts';
 import { status as emailStatus } from '../lib/integrations/email.ts';
 import { status as hubspotStatus } from '../lib/integrations/hubspot.ts';
 import { status as stripeStatus, handleWebhook, createTestPaymentLink } from '../lib/integrations/stripe.ts';
-import { listProducts, getPublishedProduct, seedProducts } from '../lib/commercial/products.ts';
+import { listProducts, getPublishedProduct, seedProducts, publishProduct } from '../lib/commercial/products.ts';
 import { generateLanding } from '../lib/commercial/landing.ts';
 import { createOrder, attachCheckout, listOrders, orderStats } from '../lib/commercial/orders.ts';
 import { getArtifact, redeemDownloadToken } from '../lib/commercial/delivery.ts';
 import { createPublicCheckout, getPublicOrderStatus } from '../lib/commercial/checkout.ts';
 import { rateLimit } from '../lib/security/rate-limit.ts';
+import { checkLoginAllowed, recordLoginFailure, recordLoginSuccess } from '../lib/security/login-guard.ts';
 import { publicBaseUrl } from '../lib/commercial/delivery.ts';
 import { commercialOverview } from '../lib/commercial/overview.ts';
-import { getControls, setControls, windowUsage, DEFAULT_CONTROLS, type Controls } from '../lib/security/controls.ts';
+import { getControls, setControls, windowUsage, DEFAULT_CONTROLS, controlStatus, type Controls } from '../lib/security/controls.ts';
 import { openFindings, resolveFinding, runWatchdog } from '../lib/core/supervisor.ts';
 import { optimizationReport, commercialReadiness, type ProductPerformance } from '../lib/commercial/optimization.ts';
 import { run } from '../lib/core/orchestrator.ts';
@@ -235,11 +236,25 @@ route('GET', '/api/health', false, async (req, res) => {
   json(res, report.ok ? 200 : 503, report);
 });
 
-route('POST', '/auth/login', false, async (_req, res, _o, body) => {
+route('POST', '/auth/login', false, async (req, res, _o, body) => {
+  const key = clientIp(req);
+  const gate = checkLoginAllowed(key);
+  if (!gate.ok) {
+    res.setHeader('Retry-After', String(Math.ceil(gate.retryAfterMs / 1000)));
+    return json(res, 429, { error: 'too many attempts; try again later' });
+  }
   const email = String(body['email'] ?? '');
   const password = String(body['password'] ?? '');
-  const { token, owner } = await login(email, password);
-  json(res, 200, { token, owner });
+  try {
+    const { token, owner } = await login(email, password);
+    recordLoginSuccess(key);
+    json(res, 200, { token, owner });
+  } catch (err) {
+    // A failed login (bad credentials) is counted; anything else is not, so an
+    // infrastructure error cannot lock the real owner out.
+    if (err instanceof ForbiddenError) recordLoginFailure(key);
+    throw err;
+  }
 });
 
 // --- owner-only ------------------------------------------------------------
@@ -510,15 +525,21 @@ route('POST', '/supervisor/resolve', true, async (_req, res, owner, body) => {
 /** Owner operational controls (budget windows, ad spend, discounts, kill switch). */
 route('GET', '/controls', true, async (_req, res) => {
   const [controls, usage] = await Promise.all([getControls(), windowUsage()]);
-  json(res, 200, { controls, usage, defaults: DEFAULT_CONTROLS });
+  // `status` tells the client which controls are actually enforced at an action
+  // point, so the dashboard can never show an unenforced switch as "on".
+  json(res, 200, { controls, usage, defaults: DEFAULT_CONTROLS, status: controlStatus() });
 });
 
 route('POST', '/controls', true, async (_req, res, owner, body) => {
   try {
+    // setControls validates every field and refuses to enable a control that has
+    // no action path (NOT IMPLEMENTED), so an unsupported switch fails closed.
     const controls = await setControls(body as Partial<Controls>, owner!.id);
     json(res, 200, { ok: true, controls });
   } catch (err) {
-    json(res, 400, { error: (err as Error).message });
+    // ForbiddenError (a refused value) is a 400-class client error here.
+    const status = err instanceof ForbiddenError ? 400 : statusForError(err).status;
+    json(res, status, { error: (err as Error).message });
   }
 });
 
@@ -591,13 +612,29 @@ route('POST', '/products/seed', true, async (_req, res, owner) => {
   json(res, 200, { ok: true, count });
 });
 
+/**
+ * Publish (or unpublish) a product. Server-side enforced: reaching this route
+ * already required an owner session, but the *transition to PUBLISHED* is gated
+ * again inside `publishProduct()` on the `publishingAllowed` control AND the
+ * `offer.publish` approval — so a route caller cannot bypass the controls, and
+ * neither can the scheduled catalog task. Non-PUBLISHED transitions (DRAFT,
+ * PAUSED, ARCHIVED) are plain owner state changes and are not gated.
+ */
 route('POST', '/products/publish', true, async (_req, res, owner, body) => {
   const slug = String(body['slug'] ?? '');
   const status = String(body['status'] ?? 'PUBLISHED');
   if (!slug) return json(res, 400, { error: 'slug is required' });
   if (!['DRAFT', 'PUBLISHED', 'PAUSED', 'ARCHIVED'].includes(status)) return json(res, 400, { error: 'invalid status' });
+  const product = await prisma.product.findUnique({ where: { slug } });
+  if (!product) return json(res, 404, { error: 'product not found' });
+  if (status === 'PUBLISHED') {
+    // Gated: throws ForbiddenError (401) when publishing is off, or
+    // ApprovalRequiredError (422) when the offer.publish approval is missing.
+    await publishProduct(slug, { actorType: 'owner', actorId: owner?.id });
+    await generateLanding(slug);
+    return json(res, 200, { ok: true, slug, status });
+  }
   await prisma.product.update({ where: { slug }, data: { status: status as never } });
-  if (status === 'PUBLISHED') await generateLanding(slug);
   await audit({ actorType: 'owner', actorId: owner?.id, action: 'product.status', target: slug, severity: 'warn', metadata: { status } });
   json(res, 200, { ok: true, slug, status });
 });
@@ -807,6 +844,17 @@ const server = createServer(async (req, res) => {
         } catch {
           return json(res, 401, { error: 'unauthorized' });
         }
+      }
+    }
+    // M5: for a mutating request, re-check the session is still live immediately
+    // before the handler runs, so a session revoked (or an emergency stop engaged)
+    // mid-request cannot still land its write. This closes the window between the
+    // auth check above and the mutation below.
+    if (match.auth && req.method === 'POST' && !authBypass()) {
+      try {
+        await assertSessionLive(bearer(req));
+      } catch {
+        return json(res, 401, { error: 'unauthorized' });
       }
     }
     const body = req.method === 'POST' ? await readBody(req) : {};

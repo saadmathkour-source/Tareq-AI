@@ -11,6 +11,7 @@ import {
   ensureControls,
   assertTaskCostAllowed,
   assertNotStopped,
+  isEmergencyStopped,
   DEFAULT_CONTROLS,
 } from '../src/lib/security/controls.ts';
 
@@ -196,5 +197,66 @@ test('the per-task cost cap refuses an over-budget task before it spends', async
       { perTaskCostCapUsd: original.perTaskCostCapUsd, dailyBudgetUsd: original.dailyBudgetUsd, monthlyBudgetUsd: original.monthlyBudgetUsd },
       'test',
     );
+  }
+});
+
+// --- Phase 18 remediation: owner-control enforcement & fail-closed -----------
+
+test('a control with no action path cannot be enabled, and cannot be raised above 0', async () => {
+  const original = await getControls();
+  try {
+    await assert.rejects(() => setControls({ marketingAllowed: true }, 'test'), /NOT IMPLEMENTED/);
+    await assert.rejects(() => setControls({ financialOpsAllowed: true }, 'test'), /NOT IMPLEMENTED/);
+    await assert.rejects(() => setControls({ adSpendCapUsd: 50 }, 'test'), /NOT IMPLEMENTED/);
+    await assert.rejects(() => setControls({ maxDiscountPct: 10 }, 'test'), /NOT IMPLEMENTED/);
+    // Turning them OFF is always allowed (it is the safe direction).
+    await setControls({ marketingAllowed: false, adSpendCapUsd: 0 }, 'test');
+  } finally {
+    await setControls(
+      { marketingAllowed: original.marketingAllowed, financialOpsAllowed: original.financialOpsAllowed, adSpendCapUsd: original.adSpendCapUsd, maxDiscountPct: original.maxDiscountPct },
+      'test',
+    );
+  }
+});
+
+test('isEmergencyStopped fails CLOSED when the control store cannot be read', async () => {
+  const realFindUnique = prisma.controlSetting.findUnique;
+  try {
+    // Simulate an unreadable control store (DB error). A failure must read as
+    // "stopped", never as "clear", so work cannot proceed on an unknown state.
+    (prisma.controlSetting as unknown as { findUnique: () => Promise<never> }).findUnique = async () => {
+      throw new Error('control store unavailable');
+    };
+    assert.equal(await isEmergencyStopped(), true, 'an unreadable store means STOP');
+    await assert.rejects(() => assertNotStopped(), /emergency stop/);
+  } finally {
+    (prisma.controlSetting as unknown as { findUnique: unknown }).findUnique = realFindUnique;
+  }
+});
+
+test('the watchdog cancels exactly one of two identical pending tasks, and never a running one', async () => {
+  const kind = `${MARK}-dup-kind`;
+  const payload = { marker: `${MARK}-dup` };
+  // Two identical PENDING tasks with NO idempotency key: the queue cannot dedupe
+  // these, so the watchdog must. Only one may survive.
+  const first = await prisma.task.create({ data: { kind, payload, status: 'PENDING', runAt: new Date(Date.now() - 2000) } });
+  const second = await prisma.task.create({ data: { kind, payload, status: 'PENDING', runAt: new Date(Date.now() - 1000) } });
+  // A third, identical but RUNNING with a fresh heartbeat: it must NOT be
+  // cancelled — the cancellation is conditional on the task still being pending,
+  // so a claimed task can never be pulled out from under its worker.
+  const running = await prisma.task.create({
+    data: { kind, payload, status: 'RUNNING', lockedBy: 'live-worker', lockedAt: new Date(), heartbeatAt: new Date() },
+  });
+  try {
+    await runWatchdog();
+    const rows = await prisma.task.findMany({ where: { kind }, select: { id: true, status: true } });
+    const cancelled = rows.filter((r) => r.status === 'CANCELLED');
+    const stillPending = rows.filter((r) => ['PENDING', 'QUEUED', 'RETRYING'].includes(r.status));
+    assert.equal(cancelled.length, 1, 'exactly one duplicate is cancelled');
+    assert.equal(stillPending.length, 1, 'exactly one duplicate survives');
+    const runningRow = rows.find((r) => r.id === running.id);
+    assert.equal(runningRow?.status, 'RUNNING', 'a RUNNING task is never cancelled by the dedupe');
+  } finally {
+    await prisma.task.deleteMany({ where: { id: { in: [first.id, second.id, running.id] } } });
   }
 });

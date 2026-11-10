@@ -58,7 +58,17 @@ database is the safest configuration, never the loosest):
   which drops the mode, cancels queued work and revokes sessions.
 - **Permission switches** — `publishingAllowed`, `outreachAllowed`,
   `marketingAllowed`, `financialOpsAllowed` and a maximum discount, all false by
-  default. `assert*Allowed` gates the matching action point.
+  default. A switch is only a real guarantee where an `assert*Allowed` call sits
+  at the action point. `controlStatus()` (and `GET /controls`) reports exactly
+  which controls are enforced and which have no action path yet, and
+  `setControls` REFUSES to enable an unenforced control (fail-closed), so the
+  surface can never present a switch as "on" when nothing enforces it:
+  - ENFORCED: `publishingAllowed` (gates `publishProduct`, the only path from
+    DRAFT to PUBLISHED), `outreachAllowed` (gates `submitForApproval`/`markSent`),
+    the cost caps and the emergency stop.
+  - DECLARED, NOT ENFORCED (no action path yet): `marketingAllowed`,
+    `financialOpsAllowed`, `maxDiscountPct`, `adSpendCapUsd`. These cannot be
+    turned on until the code that would enforce them is added.
 
 ## Prompt-injection defence
 

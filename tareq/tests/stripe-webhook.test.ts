@@ -35,7 +35,21 @@ async function purgePreviousRuns(): Promise<void> {
   await prisma.order.deleteMany({ where: { customerEmail: { startsWith: 'QTEST-16.1' } } });
 }
 
-test.before(purgePreviousRuns);
+test.before(async () => {
+  await purgePreviousRuns();
+  // Phase 18: seeding never publishes, so ensure the catalog product is live via
+  // the authorised path before creating orders against it.
+  const { seedProducts, publishProduct } = await import('../src/lib/commercial/products.ts');
+  const { getControls, setControls } = await import('../src/lib/security/controls.ts');
+  await seedProducts();
+  const original = await getControls();
+  try {
+    await setControls({ publishingAllowed: true, emergencyStop: false }, 'test');
+    await publishProduct('market-opportunity-report', { actorType: 'owner', actorId: 'test-owner' });
+  } finally {
+    await setControls({ publishingAllowed: original.publishingAllowed }, 'test');
+  }
+});
 
 test.after(async () => {
   for (const id of orderIds) await prisma.order.delete({ where: { id } }).catch(() => {});

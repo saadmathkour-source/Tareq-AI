@@ -1,12 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { prisma } from '../src/lib/core/db.ts';
-import { seedProducts, listProducts, getPublishedProduct } from '../src/lib/commercial/products.ts';
+import { seedProducts, listProducts, getPublishedProduct, publishProduct } from '../src/lib/commercial/products.ts';
 import { renderLandingHtml, generateLanding } from '../src/lib/commercial/landing.ts';
 import { createOrder, markPaid } from '../src/lib/commercial/orders.ts';
 import { deliverOrder, buildReport, validateReport } from '../src/lib/commercial/delivery.ts';
 import { classifyStripeEvent } from '../src/lib/integrations/stripe.ts';
 import { commercialOverview } from '../src/lib/commercial/overview.ts';
+import { getControls, setControls } from '../src/lib/security/controls.ts';
+import { currentMode, setMode } from '../src/lib/security/permissions.ts';
 import type { DemandScan } from '../src/lib/integrations/publicdata.ts';
 
 /**
@@ -33,6 +35,8 @@ async function purgePreviousRuns(): Promise<void> {
   await prisma.order.deleteMany({ where: { customerEmail: { startsWith: 'QTEST-16-' } } });
   await prisma.task.deleteMany({ where: { idempotencyKey: { startsWith: 'QTEST-16-' } } });
   await prisma.ledgerEntry.deleteMany({ where: { externalId: { contains: 'QTEST-16-' } } });
+  // Gate products from the publish-control tests (created with the QTEST-16- prefix).
+  await prisma.product.deleteMany({ where: { slug: { startsWith: 'QTEST-16-' } } });
 }
 
 test.before(purgePreviousRuns);
@@ -62,15 +66,131 @@ function fakeDemand(topic: string): DemandScan {
   };
 }
 
-test('the catalog seeds and exposes exactly one published product', async () => {
+/**
+ * A throwaway DRAFT product for the publish-gate tests, so they never change the
+ * real catalog row's status (other files depend on it being PUBLISHED).
+ */
+const GATE_SLUG = `${MARK}-gate-product`;
+
+async function withGateProduct<T>(fn: () => Promise<T>): Promise<T> {
+  await prisma.product.create({
+    data: {
+      slug: GATE_SLUG,
+      name: 'Gate Test Product',
+      tagline: 't',
+      problem: 'p',
+      solution: 's',
+      deliverables: [] as never,
+      deliverySteps: [] as never,
+      requirements: [] as never,
+      limitations: [] as never,
+      qaChecklist: [] as never,
+      priceUsd: 10,
+      costUsd: 1,
+      marginPct: 90,
+      status: 'DRAFT',
+      claimRefs: [] as never,
+    },
+  });
+  try {
+    return await fn();
+  } finally {
+    await prisma.product.deleteMany({ where: { slug: GATE_SLUG } });
+  }
+}
+
+test('the catalog seeds every product as DRAFT — seeding never publishes', async () => {
+  // Deterministic proof, independent of shared-DB state left by other files:
+  //   (a) the create path writes DRAFT, and
+  //   (b) seeding never CHANGES an existing product's status.
+  // Together these mean seeding can never introduce a PUBLISHED product.
+  const before = await listProducts(false);
+  const statusBefore = new Map(before.map((p) => [p.slug, p.status]));
+
+  // Remove one candidate so the create path is exercised for a missing row.
+  const candidate = 'competitor-white-space-scan';
+  await prisma.product.deleteMany({ where: { slug: candidate } });
+
   const n = await seedProducts();
   assert.ok(n >= 1);
-  const products = await listProducts(false);
-  const published = products.filter((p) => p.status === 'PUBLISHED');
-  assert.equal(published.length, 1, 'exactly one product is published for the first launch');
-  assert.equal(published[0]!.slug, 'market-opportunity-report');
+
+  const after = await listProducts(false);
+  const recreated = after.find((p) => p.slug === candidate);
+  assert.ok(recreated, 'the removed candidate is re-seeded');
+  assert.equal(recreated!.status, 'DRAFT', 'a freshly seeded product is DRAFT, never PUBLISHED');
+
+  // No product that existed before seeding changed status because of seeding.
+  for (const [slug, status] of statusBefore) {
+    const now = after.find((p) => p.slug === slug);
+    if (now) assert.equal(now.status, status, `seeding must not change the status of ${slug}`);
+  }
+
   const again = await seedProducts();
   assert.equal(again, n, 'seeding is idempotent');
+});
+
+test('publishing is refused while the publishingAllowed control is off (default)', async () => {
+  const original = await getControls();
+  try {
+    await setControls({ publishingAllowed: false, emergencyStop: false }, 'test');
+    await withGateProduct(async () => {
+      await assert.rejects(
+        () => publishProduct(GATE_SLUG, { actorType: 'owner' }),
+        /not permitted by the owner controls/,
+        'the owner control must block publishing even for an owner',
+      );
+      const row = await prisma.product.findUniqueOrThrow({ where: { slug: GATE_SLUG } });
+      assert.equal(row.status, 'DRAFT', 'a refused publish must leave the product as DRAFT');
+    });
+  } finally {
+    await setControls({ publishingAllowed: original.publishingAllowed }, 'test');
+  }
+});
+
+test('an autonomous actor cannot publish even when publishing is allowed (approval required)', async () => {
+  const original = await getControls();
+  const prevMode = await currentMode();
+  try {
+    // Reach the approval gate, not the mode gate: an autonomous run only gets
+    // this far in SUPERVISED/AUTONOMOUS mode. The point is that even then, an
+    // agent with no approved offer.publish approval is refused.
+    await setMode('SUPERVISED', 'test');
+    await setControls({ publishingAllowed: true, emergencyStop: false }, 'test');
+    await withGateProduct(async () => {
+      await assert.rejects(() => publishProduct(GATE_SLUG, { actorType: 'agent' }), /approval/i);
+      const row = await prisma.product.findUniqueOrThrow({ where: { slug: GATE_SLUG } });
+      assert.equal(row.status, 'DRAFT', 'an unapproved autonomous publish must not go live');
+    });
+  } finally {
+    await setMode(prevMode, 'test');
+    await setControls({ publishingAllowed: original.publishingAllowed }, 'test');
+  }
+});
+
+test('the emergency stop blocks publishing', async () => {
+  const original = await getControls();
+  try {
+    await setControls({ publishingAllowed: true, emergencyStop: true }, 'test');
+    await withGateProduct(async () => {
+      await assert.rejects(() => publishProduct(GATE_SLUG, { actorType: 'owner' }), /emergency stop/);
+    });
+  } finally {
+    await setControls({ publishingAllowed: original.publishingAllowed, emergencyStop: original.emergencyStop }, 'test');
+  }
+});
+
+test('the owner can publish only when the control is on and the action is authorised', async () => {
+  const original = await getControls();
+  try {
+    await setControls({ publishingAllowed: true, emergencyStop: false }, 'test');
+    await withGateProduct(async () => {
+      await publishProduct(GATE_SLUG, { actorType: 'owner', actorId: 'test-owner' });
+      const row = await prisma.product.findUniqueOrThrow({ where: { slug: GATE_SLUG } });
+      assert.equal(row.status, 'PUBLISHED', 'an authorised publish goes live');
+    });
+  } finally {
+    await setControls({ publishingAllowed: original.publishingAllowed }, 'test');
+  }
 });
 
 test('the landing page states price, deliverables, requirements and honest limits', async () => {

@@ -84,6 +84,17 @@ export async function authenticate(token: string | undefined | null): Promise<Ow
   };
 }
 
+/**
+ * Re-verify that the session behind a token is still live, at the moment of a
+ * mutating action. `authenticate()` runs when the request arrives; the owner may
+ * revoke sessions (or engage the emergency stop) while the handler is running.
+ * Calling this just before a protected mutation narrows that window to a single
+ * round-trip. A revoked/expired session throws `ForbiddenError`.
+ */
+export async function assertSessionLive(token: string | undefined | null): Promise<void> {
+  await authenticate(token);
+}
+
 export async function logout(token: string): Promise<void> {
   await prisma.session.updateMany({
     where: { tokenHash: hashToken(token), revokedAt: null },

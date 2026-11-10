@@ -132,10 +132,14 @@ async function checkOrphanDependencies(): Promise<Finding[]> {
     const missing = t.dependsOn.filter((d) => !present.has(d));
     if (missing.length === 0) continue;
     const reason = `orphan dependency: ${missing.length} prerequisite task(s) do not exist (${missing.join(', ')})`;
-    await prisma.task.update({
-      where: { id: t.id },
+    // Conditional, atomic: only dead-letter a task that is STILL waiting. If it
+    // moved to another state (e.g. a worker claimed it) between the read and the
+    // write, this matches nothing and we leave it alone.
+    const moved = await prisma.task.updateMany({
+      where: { id: t.id, status: { in: ['PENDING', 'QUEUED', 'RETRYING'] } },
       data: { status: 'DEAD', error: reason, finishedAt: new Date(), lockedBy: null, lockedAt: null },
     });
+    if (moved.count === 0) continue;
     await prisma.deadLetter.create({ data: { taskId: t.id, kind: t.kind, payload: {} as never, error: reason } });
     await emit('task.dead', { taskId: t.id, kind: t.kind, error: reason });
     findings.push({
@@ -166,11 +170,13 @@ async function checkDuplicates(): Promise<Finding[]> {
     const key = payloadKey(t.kind, t.payload);
     const first = seen.get(key);
     if (first) {
-      dupes.push(t.id);
-      await prisma.task.update({
-        where: { id: t.id },
+      // Conditional, atomic: only cancel a task that is STILL pending. If a
+      // worker claimed it between the read and the write, this matches nothing.
+      const moved = await prisma.task.updateMany({
+        where: { id: t.id, status: { in: ['PENDING', 'QUEUED', 'RETRYING'] } },
         data: { status: 'CANCELLED', error: `duplicate of ${first}`, finishedAt: new Date() },
       });
+      if (moved.count > 0) dupes.push(t.id);
     } else {
       seen.set(key, t.id);
     }

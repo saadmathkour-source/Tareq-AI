@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac, randomUUID } from 'node:crypto';
 import { prisma } from '../src/lib/core/db.ts';
-import { seedProducts } from '../src/lib/commercial/products.ts';
+import { seedProducts, publishProduct } from '../src/lib/commercial/products.ts';
+import { getControls, setControls } from '../src/lib/security/controls.ts';
 import { createPublicCheckout, getPublicOrderStatus, normalizeEmail, sanitizeRequirements } from '../src/lib/commercial/checkout.ts';
 import { deliverOrder, redeemDownloadToken, hashToken, mintDownloadToken } from '../src/lib/commercial/delivery.ts';
 import { handleWebhook } from '../src/lib/integrations/stripe.ts';
@@ -50,6 +51,15 @@ async function purgePreviousRuns(): Promise<void> {
 test.before(async () => {
   await purgePreviousRuns();
   await seedProducts();
+  // Phase 18: seeding no longer publishes, so make the catalog product live via
+  // the authorised path (owner + publishingAllowed) before exercising checkout.
+  const original = await getControls();
+  try {
+    await setControls({ publishingAllowed: true, emergencyStop: false }, 'test');
+    await publishProduct('market-opportunity-report', { actorType: 'owner', actorId: 'test-owner' });
+  } finally {
+    await setControls({ publishingAllowed: original.publishingAllowed }, 'test');
+  }
 });
 
 // Restore the real fetch and the limiter windows between tests, so a test that

@@ -583,8 +583,13 @@ async function refresh() {
     card(t('toggle.emergencyStop'), ctlv.emergencyStop ? 'ON' : 'off', ctlv.emergencyStop ? 'acting work halted' : ''),
   ].join('');
   const toggles = [['publishingAllowed'], ['outreachAllowed'], ['marketingAllowed'], ['financialOpsAllowed'], ['emergencyStop']];
-  document.getElementById('controlToggles').innerHTML = toggles.map(([k]) =>
-    '<label class="muted" style="font-size:12px"><input type="checkbox" data-ctl="' + k + '" ' + (ctlv[k] ? 'checked' : '') + ' /> ' + t('toggle.' + k) + '</label>').join('');
+  // Controls with no action path yet are shown, but disabled and labelled, so the
+  // UI can never imply an enforcement that does not exist.
+  const notImpl = (ctl.status && ctl.status.notImplemented) || [];
+  document.getElementById('controlToggles').innerHTML = toggles.map(([k]) => {
+    const ni = notImpl.indexOf(k) >= 0;
+    return '<label class="muted" style="font-size:12px"><input type="checkbox" data-ctl="' + k + '" ' + (ctlv[k] ? 'checked' : '') + (ni ? ' disabled' : '') + ' /> ' + t('toggle.' + k) + (ni ? ' <span class="pill warn">' + t('notimpl') + '</span>' : '') + '</label>';
+  }).join('');
 
   // optimization & readiness (Phase 18)
   const ov = opt.products || [];

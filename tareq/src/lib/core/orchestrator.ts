@@ -4,7 +4,7 @@ import { drain } from './events.ts';
 import { logger } from './logger.ts';
 import { audit } from './audit.ts';
 import { TareqError } from './errors.ts';
-import { getControls } from '../security/controls.ts';
+import { isEmergencyStopped } from '../security/controls.ts';
 
 /**
  * Orchestrator.
@@ -36,8 +36,10 @@ export function registeredKinds(): string[] {
 /** Run one claim/dispatch cycle. Returns true if a task was processed. */
 export async function tick(workerId: string): Promise<boolean> {
   // The owner's emergency stop halts ALL work at the source: no task is claimed
-  // or executed until it is cleared. This is the process-wide kill switch.
-  if ((await getControls()).emergencyStop) return false;
+  // or executed until it is cleared. This is the process-wide kill switch, and it
+  // fails closed — if the control store cannot be read, `isEmergencyStopped()`
+  // returns true and the loop claims nothing.
+  if (await isEmergencyStopped()) return false;
 
   const task = await claimNext(workerId);
   if (!task) return false;
