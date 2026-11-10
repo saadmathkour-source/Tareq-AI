@@ -26,7 +26,7 @@
 - Public `/shop`, `/buy/market-opportunity-report`, and `/contact` rendered in the earlier Phase 0 snapshot; `/insights` then had no published articles.
 - PR #11's latest-main source adds an inquiry delivery lease (`reply_claimed_at`) and retry handling. Production still needs the additive schema field and deployment before this behavior can be assumed live.
 - Full TAREQ suite: 299/299 passed against temporary local PostgreSQL on loopback; no production credentials were inherited. Focused dashboard/capability tests: 17/17. `npm run typecheck`, `npm run build`, embedded dashboard `node --check`, and `git diff --check` passed on the merged-current-main branch.
-- GitHub reports PR #12 merged at `2026-11-10T18:29:44Z`. Its merge was not performed by this work. The follow-up branch is `fix/tareq-post-merge-test-hardening`, based on current `main`, and limits its changes to four TAREQ files. No Actions runs/status checks were present for PR #12.
+- GitHub reports PR #12 merged at `2026-11-10T18:29:44Z`. Its merge was not performed by this work. Follow-up PR #13 is an open draft on `fix/tareq-post-merge-test-hardening`, based on current `main`, and limits its changes to four TAREQ files. No Actions runs/status checks are present for PR #13.
 
 ## Current blockers
 
@@ -37,7 +37,7 @@
 
 ## Remaining
 
-- Open a small follow-up PR from the current-main-based branch to update the Phase 18 API test to real owner sessions and align the status docs with the merged PRs.
+- Review draft PR #13 for the Phase 18 API test update and post-merge status corrections.
 - After PR review, request owner authorization for production content publishing or inquiry email only if needed. Do not deploy or change live permissions without approval.
 - Next after these owner surfaces: verify email delivery without sending customer mail, design safe retry for failed replies, then inspect sales/fulfillment evidence.
 - Apply the additive `reply_claimed_at` schema change only through the approved production database process; do not mutate production during this audit.
@@ -50,7 +50,7 @@
 
 ## Next single action
 
-Complete the final diff/security/scope review and submit the follow-up PR. No merge or production deployment is authorized.
+Review draft PR #13. No merge or production deployment is authorized.
 
 ## Complete TAREQ file listing
 - `.dockerignore`
