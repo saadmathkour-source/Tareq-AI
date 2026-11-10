@@ -906,6 +906,8 @@ model Inquiry {
   answeredAt  DateTime?     @map("answered_at")
   /// Set only when an outbound reply was actually handed to the email provider.
   replySentAt DateTime?     @map("reply_sent_at")
+  /// Atomic lease preventing concurrent workers from sending the same reply.
+  replyClaimedAt DateTime?  @map("reply_claimed_at")
   ip          String?
   createdAt   DateTime      @default(now()) @map("created_at")
 
