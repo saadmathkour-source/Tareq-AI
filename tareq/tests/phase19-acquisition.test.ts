@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { prisma } from '../src/lib/core/db.ts';
-import { publishArticle, getPublishedArticle } from '../src/lib/commercial/publishing.ts';
+import { articleProductSlug, publishArticle, getPublishedArticle } from '../src/lib/commercial/publishing.ts';
 import { createInquiry, answerInquiry } from '../src/lib/commercial/inquiries.ts';
 import { getControls, setControls } from '../src/lib/security/controls.ts';
-import { registerAllHandlers } from '../src/lib/core/handlers.ts';
+import { publishDraftWithinOwnerScope, registerAllHandlers } from '../src/lib/core/handlers.ts';
 import { registeredKinds } from '../src/lib/core/orchestrator.ts';
 
 /**
@@ -70,6 +70,62 @@ test('an article with no traceable source fails QA and cannot be published', asy
       await prisma.article.delete({ where: { id: art.id } });
     }
   });
+});
+
+test('an article with a non-HTTPS source fails QA and cannot be published', async () => {
+  await withContent(true, async () => {
+    const art = await prisma.article.create({
+      data: {
+        slug: `t-badsrc-${Date.now()}`,
+        title: 'T',
+        summary: 'S',
+        bodyHtml: '<p>x</p>',
+        sources: [{ title: 'Untrusted link', url: 'javascript:alert(1)' }] as never,
+      },
+    });
+    try {
+      await assert.rejects(() => publishArticle(art.slug, 'test'), /at least one titled HTTPS source/);
+    } finally {
+      await prisma.article.delete({ where: { id: art.id } });
+    }
+  });
+});
+
+test('organic article defaults to the flagship checkout only while the offer is published', async () => {
+  const product = await prisma.product.findUnique({ where: { slug: 'market-opportunity-report' } });
+  assert.ok(product, 'isolated bootstrap seeds the flagship product');
+  const before = product!.status;
+  try {
+    await prisma.product.update({ where: { id: product!.id }, data: { status: 'PUBLISHED' } });
+    assert.equal(await articleProductSlug(), 'market-opportunity-report');
+    await prisma.product.update({ where: { id: product!.id }, data: { status: 'DRAFT' } });
+    assert.equal(await articleProductSlug(), null, 'a draft product must not be advertised');
+  } finally {
+    await prisma.product.update({ where: { id: product!.id }, data: { status: before } });
+  }
+});
+
+test('scheduled article publishing stays draft by default and publishes only with owner content permission', async () => {
+  const slug = `t-scheduled-${Date.now()}`;
+  const art = await prisma.article.create({
+    data: { slug, title: 'Market evidence', summary: 'A sourced summary', bodyHtml: '<p>Useful guidance</p>', sources: SOURCE as never },
+  });
+  try {
+    await withContent(false, async () => {
+      const result = await publishDraftWithinOwnerScope(slug);
+      assert.equal(result.status, 'DRAFT');
+      assert.equal(result.skipped, 'owner content-publishing permission is off');
+      assert.equal(await getPublishedArticle(slug), null);
+    });
+    await withContent(true, async () => {
+      const result = await publishDraftWithinOwnerScope(slug);
+      assert.equal(result.status, 'PUBLISHED');
+      assert.equal(result.publicPath, `/insights/${slug}`);
+      assert.ok(await getPublishedArticle(slug));
+    });
+  } finally {
+    await prisma.article.delete({ where: { id: art.id } });
+  }
 });
 
 test('an inquiry requires a valid email and a non-trivial message', async () => {

@@ -2,44 +2,47 @@
 
 **Project boundary:** repository `saadmathkour-source/Tareq-AI`; verified application root `tareq/` only.
 
-**Current phase:** Phase 3 — owner content and inquiry surfaces implemented on PR #12; production activation not authorized.
+**Current phase:** Phase 3 — source offer and publishing QA repairs prepared on draft PR #13; production publishing remains owner-gated.
 
 **Last updated:** 2026-11-10 UTC.
 
-**Production:** no changes made; no merge/deploy/payment/email/spend performed.
+**Production:** no production change was made by this work. PR #12 was merged on GitHub while the review was in progress; deployment of that merge has not been verified.
 
 ## Completed
 
 - Phase 0 read-only source and production inventory: [`docs/PHASE0_PRODUCTION_INVENTORY.md`](docs/PHASE0_PRODUCTION_INVENTORY.md).
 - Phase 1 source-derived 100-capability register: [`docs/PHASE1_100_CAPABILITY_REGISTER.md`](docs/PHASE1_100_CAPABILITY_REGISTER.md). Exact IDs 1–100 are unique. The source’s 100 `VERIFIED_FUNCTIONAL` statuses were not accepted as production evidence; audited classifications are 9 PARTIAL, 19 IMPLEMENTED_NOT_VERIFIED, 72 BACKEND_ONLY.
 - Phase 2 frontend-to-backend audit: [`docs/PHASE2_FRONTEND_AUDIT.md`](docs/PHASE2_FRONTEND_AUDIT.md). Found that the live Insights page has no posts and the owner dashboard had no content controls despite backend routes.
-- Verified TAREQ root, default branch `main`, production commit `bca738c426482de22b16e86915685b87a299b356`, public customer pages, live `/health`, existing draft PRs #10 and #11.
-- PR #12 (`fix/organic-content-dashboard`) adds bilingual owner surfaces to review sourced article drafts, explicitly confirm publishing, and inspect/answer inbound inquiries. Server permission, source QA, emergency-stop, outreach-permission and email-provider checks remain authoritative.
+- Verified TAREQ root and default branch `main`. PR #10 (auth hardening), PR #11 (inquiry stop/retry), and PR #12 (content/inquiry dashboard) are merged; current `main` is `6e2fad798318928b5c441d582e81e0fc0fdaf181`.
+- PR #12 added bilingual owner surfaces to review sourced article drafts, explicitly confirm publishing, and inspect/answer inbound inquiries. Server permission, source QA, emergency-stop, outreach-permission and email-provider checks remain authoritative.
+- PR #13 now aligns the market-report offer with the JSON report actually delivered, makes report and article QA enforceable, links organic drafts to the flagship checkout only when published, and lets the existing twice-weekly worker publish only when the owner content control is on. When off, the worker leaves drafts unpublished.
 - Contact success copy now distinguishes recorded inquiry from delivered email; the contact page discloses stored fields and IP use for abuse prevention.
 - Capability runtime statuses now distinguish `VERIFIED_PRODUCTION`, `IMPLEMENTED_NOT_VERIFIED`, `PARTIAL`, `BACKEND_ONLY` and the other blueprint values. Current count remains 0 verified production, 19 implemented not verified, 9 partial, 72 backend-only. Historical source-only rows are not called production proof.
 - No database or production mutation in this task.
 
 ## Evidence
 
-- Production health at `2026-11-10T16:52:50.995Z`: HTTP 200; database, OpenAI, DeepSeek, owner config indicators true; build SHA matches current main.
-- Public `/shop`, `/buy/market-opportunity-report`, `/contact` render; `/insights` reports no published articles.
-- Latest remote main is PR #9 merge/base followed by Phase 19 commit `bca738c…`; PR #10 and #11 remain open drafts. PR #11 describes 299/299 isolated local database tests, typecheck and build. This is test evidence only.
-- Focused verification after the inquiry surface and contact-message repair: dashboard + capability-index tests 17/17 passed; `npm run typecheck` passed; `npm run build` passed; `git diff --check` passed. Database integration tests were not run because no isolated `TEST_DATABASE_URL` is available in this workspace.
-- Current branch: `fix/organic-content-dashboard`, base `main` `bca738c…`; draft PR #12 is open and unmerged. It contains only `tareq/` files. GitHub Actions reports no workflow runs/checks for its head commit.
+- Historical production health at `2026-11-10T16:52:50.995Z`: HTTP 200; database, OpenAI, DeepSeek, and owner-config indicators true; deployed build SHA was `bca738c…` at that time.
+- A read-only `/health` request at `2026-11-10T18:31:32Z` returned HTTP 200 headers but no body before the 10-second client timeout. Current production build and integration health therefore remain unverified.
+- Latest read-only requests from this environment to `/health`, `/shop`, `/checkout/market-opportunity-report`, `/insights`, and `/contact` timed out without response bodies. This does not prove the service is down; the live product, articles and checkout are currently unverified.
+- Public `/shop`, `/buy/market-opportunity-report`, and `/contact` rendered in the earlier Phase 0 snapshot; `/insights` then had no published articles.
+- PR #11's latest-main source adds an inquiry delivery lease (`reply_claimed_at`) and retry handling. Production still needs the additive schema field and deployment before this behavior can be assumed live.
+- Full TAREQ suite: 299/299 passed against temporary local PostgreSQL on loopback; no production credentials were inherited. Focused dashboard/capability tests: 17/17. `npm run typecheck`, `npm run build`, embedded dashboard `node --check`, and `git diff --check` passed on the merged-current-main branch.
+- GitHub reports PR #12 merged at `2026-11-10T18:29:44Z`. Its merge was not performed by this work. Follow-up PR #13 is an open draft on `fix/tareq-post-merge-test-hardening`, based on current `main`, with eleven changed files, all inside `tareq/`. Focused product QA (3/3) and organic publishing/acquisition QA (6/6) passed on isolated local PostgreSQL; `npm run typecheck`, `npm run build`, and `git diff --check` passed. The full suite was not rerun. No Actions runs/status checks are present for PR #13.
 
 ## Current blockers
 
-1. Production organic-content channel has no articles. This branch supplies the owner review/publish surface, but the fix is not deployed; publishing permission remains off until the owner authorizes it.
-2. The owner inquiry surface can inspect and answer new inquiries. Email delivery remains conditional on explicit outreach permission plus a working provider. A failed answer email cannot yet be retried after the inquiry has been marked ANSWERED; this needs a safe retry design.
-3. Stripe LIVE/webhook, worker runtime/scheduler execution and email delivery cannot be verified without Railway runtime metadata or owner-only integration view.
+1. No public article or live deployment is verified now. PR #13 contains a twice-weekly autonomous publish path, but `contentPublishingAllowed` is false by default and no production permission or deployment has been authorized.
+2. The owner inquiry surface can inspect and process new inquiries. Email delivery remains conditional on explicit permission plus a working provider. The source retry mechanism requires `reply_claimed_at` schema application and a deployment; live delivery is unverified.
+3. Current production build/DB health could not be confirmed from the latest read-only probe; Stripe webhook, worker/scheduler and email status remain unverified.
 4. No evidence of a real customer, live paid order, delivery, revenue or net profit. First-sale validation remains pending.
 
 ## Remaining
 
-- Run a final secrets/conflict/scope scan and update PR #12 with the inquiry UI, truthful customer-facing response and status documentation.
+- Review draft PR #13 for the Phase 18 test repair, sales-copy correction, and fail-closed publication QA.
 - After PR review, request owner authorization for production content publishing or inquiry email only if needed. Do not deploy or change live permissions without approval.
 - Next after these owner surfaces: verify email delivery without sending customer mail, design safe retry for failed replies, then inspect sales/fulfillment evidence.
-- Review PR #11 for inquiry retry fix and schema application. Do not merge or deploy without the owner's separate approval; its database change has no checked-in migration.
+- Apply the additive `reply_claimed_at` schema change only through the approved production database process; do not mutate production during this audit.
 - Do not activate production content publishing or email responses until the owner grants a bounded permission scope and current configuration is verified.
 
 ## Owner approval required
@@ -49,7 +52,7 @@
 
 ## Next single action
 
-Complete the final diff/security/scope review and update draft PR #12. No merge or production deployment is authorized.
+Owner action needed before a public article can be published: grant the bounded `contentPublishingAllowed` permission in the TAREQ owner dashboard. No merge or production deployment is authorized.
 
 ## Complete TAREQ file listing
 - `.dockerignore`

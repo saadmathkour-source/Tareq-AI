@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { prisma } from '../src/lib/core/db.ts';
-import { seedProducts, listProducts, getPublishedProduct, publishProduct } from '../src/lib/commercial/products.ts';
+import { MARKET_OPPORTUNITY_REPORT, seedProducts, listProducts, getPublishedProduct, publishProduct } from '../src/lib/commercial/products.ts';
 import { renderLandingHtml, generateLanding } from '../src/lib/commercial/landing.ts';
 import { createOrder, markPaid } from '../src/lib/commercial/orders.ts';
 import { deliverOrder, buildReport, validateReport } from '../src/lib/commercial/delivery.ts';
@@ -308,6 +308,27 @@ test('a report missing sources fails QA', () => {
   const report = buildReport('x', empty, 'summary');
   const qa = validateReport(report, []);
   assert.equal(qa.ok, false, 'no sources => not valid');
+});
+
+test('flagship offer promises only the report the delivery engine creates', () => {
+  const offerCopy = [MARKET_OPPORTUNITY_REPORT.tagline, MARKET_OPPORTUNITY_REPORT.problem, MARKET_OPPORTUNITY_REPORT.solution,
+    ...MARKET_OPPORTUNITY_REPORT.deliverables, ...MARKET_OPPORTUNITY_REPORT.deliverySteps].join(' ').toLowerCase();
+  for (const unsupported of ['pdf-ready', 'competitor analysis', 'pricing benchmark', 'scored shortlist', 'white space']) {
+    assert.equal(offerCopy.includes(unsupported), false, `offer must not promise unsupported ${unsupported}`);
+  }
+  assert.match(offerCopy, /hacker news/);
+  assert.match(offerCopy, /wikipedia/);
+  assert.match(offerCopy, /structured report/);
+});
+
+test('delivery QA checks the declared source and evidence limitations', () => {
+  const report = buildReport('x', fakeDemand('x'), 'summary');
+  const checklist = [...MARKET_OPPORTUNITY_REPORT.qaChecklist];
+  assert.equal(validateReport(report, checklist).ok, true);
+
+  const malformed = { ...report, demand: { ...report.demand, sources: [{ ...report.demand.sources[0]!, url: 'javascript:alert(1)' }] } };
+  assert.equal(validateReport(malformed, checklist).ok, false, 'invalid source URL must fail QA');
+  assert.equal(validateReport(report, ['Unrecognized product claim']).ok, false, 'unknown QA requirements fail closed');
 });
 
 test('Stripe classification: live checkout with an order ref is revenue', () => {

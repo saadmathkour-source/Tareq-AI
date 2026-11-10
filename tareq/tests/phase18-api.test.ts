@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { AddressInfo } from 'node:net';
 import { randomUUID } from 'node:crypto';
-import { server, resolveAuthBypass } from '../src/app/server.ts';
+import { server } from '../src/app/server.ts';
 import { prisma } from '../src/lib/core/db.ts';
 import { getControls, setControls } from '../src/lib/security/controls.ts';
+import { hashPassword, login, logout } from '../src/lib/security/owner-auth.ts';
 
 /**
  * HTTP-level integration tests for the Phase 18 endpoints. These drive the REAL
@@ -13,45 +14,52 @@ import { getControls, setControls } from '../src/lib/security/controls.ts';
  * the status codes actually behave. They run against the isolated test database
  * (`TAREQ_USE_TEST_DB=1`).
  *
- * Auth strategy: the owner-auth bypass is used with a stubbed owner count of 0,
- * which is exactly the lockout-recovery path the bypass is designed for. That
- * lets these tests exercise authenticated routing without creating an owner row.
+ * Auth strategy: each authenticated case creates a temporary non-primary owner
+ * in the isolated test database and uses the real login/session middleware.
+ * The no-auth case sets the obsolete bypass variable to prove it grants nothing.
  */
 
 const MARK = `IT18-${randomUUID().slice(0, 8)}`;
+let sessionToken = '';
 
 async function withServer<T>(fn: (base: string) => Promise<T>): Promise<T> {
-  const prevBypass = process.env.TAREQ_AUTH_BYPASS;
-  process.env.TAREQ_AUTH_BYPASS = '1';
-  await resolveAuthBypass(async () => 0); // no owner => bypass is allowed
+  const email = `phase18-${randomUUID()}@example.test`;
+  const password = `test-only-${randomUUID()}-Aa9!`;
+  const owner = await prisma.owner.create({ data: { email, passwordHash: hashPassword(password), isPrimary: false } });
+  const loggedIn = await login(email, password, { userAgent: 'phase18-test' });
+  sessionToken = loggedIn.token;
   await new Promise<void>((r) => server.listen(0, r));
   const { port } = server.address() as AddressInfo;
   try {
     return await fn(`http://127.0.0.1:${port}`);
   } finally {
     await new Promise<void>((r) => server.close(() => r()));
-    if (prevBypass === undefined) delete process.env.TAREQ_AUTH_BYPASS;
-    else process.env.TAREQ_AUTH_BYPASS = prevBypass;
+    await logout(sessionToken);
+    await prisma.owner.delete({ where: { id: owner.id } });
+    sessionToken = '';
   }
 }
 
 async function withNoAuth<T>(fn: (base: string) => Promise<T>): Promise<T> {
   const prevBypass = process.env.TAREQ_AUTH_BYPASS;
-  delete process.env.TAREQ_AUTH_BYPASS;
-  await resolveAuthBypass(async () => 1); // an owner exists => normal auth, no bypass
+  const prevToken = sessionToken;
+  process.env.TAREQ_AUTH_BYPASS = '1'; // obsolete setting must have no effect
+  sessionToken = '';
   await new Promise<void>((r) => server.listen(0, r));
   const { port } = server.address() as AddressInfo;
   try {
     return await fn(`http://127.0.0.1:${port}`);
   } finally {
     await new Promise<void>((r) => server.close(() => r()));
+    sessionToken = prevToken;
     if (prevBypass === undefined) delete process.env.TAREQ_AUTH_BYPASS;
     else process.env.TAREQ_AUTH_BYPASS = prevBypass;
   }
 }
 
 const post = (base: string, path: string, body?: unknown) =>
-  fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body ?? {}) });
+  fetch(`${base}${path}`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${sessionToken}` }, body: JSON.stringify(body ?? {}) });
+const get = (base: string, path: string) => fetch(`${base}${path}`, { headers: { authorization: `Bearer ${sessionToken}` } });
 
 // --- authentication is enforced on every new endpoint -----------------------
 test('every new endpoint rejects an unauthenticated request with 401', async () => {
@@ -78,7 +86,7 @@ test('every new endpoint rejects an unauthenticated request with 401', async () 
 // --- GET /controls ----------------------------------------------------------
 test('GET /controls returns controls, usage and the implementation status', async () => {
   await withServer(async (base) => {
-    const res = await fetch(`${base}/controls`);
+    const res = await get(base, '/controls');
     assert.equal(res.status, 200);
     const body = (await res.json()) as { controls: Record<string, unknown>; usage: Record<string, unknown>; status: { implemented: string[]; notImplemented: string[] } };
     assert.equal(typeof body.controls.dailyBudgetUsd, 'number');
@@ -105,7 +113,7 @@ test('POST /controls refuses to enable a NOT IMPLEMENTED control (fail closed)',
     assert.equal(res.status, 400, 'an unenforced control cannot be turned on');
     const body = (await res.json()) as { error: string };
     assert.match(body.error, /NOT IMPLEMENTED/);
-    const read = (await (await fetch(`${base}/controls`)).json()) as { controls: { marketingAllowed: boolean } };
+    const read = (await (await get(base, '/controls')).json()) as { controls: { marketingAllowed: boolean } };
     assert.equal(read.controls.marketingAllowed, false, 'the control stays off');
   });
 });
@@ -127,7 +135,7 @@ test('POST /controls accepts a valid change and persists it', async () => {
 // --- supervisor -------------------------------------------------------------
 test('GET /supervisor returns findings and a byStatus summary', async () => {
   await withServer(async (base) => {
-    const res = await fetch(`${base}/supervisor`);
+    const res = await get(base, '/supervisor');
     assert.equal(res.status, 200);
     const body = (await res.json()) as { findings: unknown[]; byStatus: Record<string, number> };
     assert.ok(Array.isArray(body.findings));
@@ -164,7 +172,7 @@ test('POST /supervisor/resolve without an id returns 400', async () => {
 // --- optimization / readiness ----------------------------------------------
 test('GET /optimization returns a product verdict report', async () => {
   await withServer(async (base) => {
-    const res = await fetch(`${base}/optimization`);
+    const res = await get(base, '/optimization');
     assert.equal(res.status, 200);
     const body = (await res.json()) as { products: unknown[]; actions: string[]; requiresOwnerApproval: string[] };
     assert.ok(Array.isArray(body.products));
@@ -175,7 +183,7 @@ test('GET /optimization returns a product verdict report', async () => {
 
 test('GET /readiness returns the honest readiness checklist', async () => {
   await withServer(async (base) => {
-    const res = await fetch(`${base}/readiness`);
+    const res = await get(base, '/readiness');
     assert.equal(res.status, 200);
     const body = (await res.json()) as { items: unknown[]; verified: number; total: number; complete: boolean };
     assert.ok(Array.isArray(body.items));

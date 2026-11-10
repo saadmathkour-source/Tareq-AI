@@ -32,7 +32,7 @@ import { status as hubspotStatus } from '../lib/integrations/hubspot.ts';
 import { status as stripeStatus, handleWebhook, createTestPaymentLink } from '../lib/integrations/stripe.ts';
 import { listProducts, getPublishedProduct, seedProducts, publishProduct } from '../lib/commercial/products.ts';
 import { generateLanding } from '../lib/commercial/landing.ts';
-import { draftArticle, publishArticle, listPublishedArticles, getPublishedArticle, listAllArticles } from '../lib/commercial/publishing.ts';
+import { articleProductSlug, draftArticle, publishArticle, listPublishedArticles, getPublishedArticle, listAllArticles } from '../lib/commercial/publishing.ts';
 import { createInquiry, answerInquiry, listInquiries } from '../lib/commercial/inquiries.ts';
 import { createOrder, attachCheckout, listOrders, orderStats } from '../lib/commercial/orders.ts';
 import { getArtifact, redeemDownloadToken } from '../lib/commercial/delivery.ts';
@@ -596,7 +596,7 @@ route('GET', '/content', true, async (_req, res) => {
 route('POST', '/content/draft', true, async (_req, res, owner, body) => {
   const topic = String(body['topic'] ?? '').trim();
   if (!topic) return json(res, 400, { error: 'topic is required' });
-  const productSlug = body['productSlug'] ? String(body['productSlug']) : null;
+  const productSlug = await articleProductSlug(body['productSlug'] ? String(body['productSlug']) : null);
   const { id, slug } = await draftArticle({ topic, productSlug });
   await audit({ actorType: 'owner', actorId: owner?.id, action: 'content.drafted', target: slug, metadata: { topic } });
   json(res, 200, { ok: true, id, slug });
@@ -690,8 +690,14 @@ const server = createServer(async (req, res) => {
   try {
     const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
 
+    // Visitors enter the sales path; owner controls stay at /dashboard.
+    if (req.method === 'GET' && url.pathname === '/') {
+      res.writeHead(302, { location: '/shop' });
+      res.end();
+      return;
+    }
     // Owner dashboard (static shell; data comes from authenticated API calls).
-    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/dashboard')) {
+    if (req.method === 'GET' && url.pathname === '/dashboard') {
       const html = dashboard();
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(html) });
       res.end(html);

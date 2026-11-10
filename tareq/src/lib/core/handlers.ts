@@ -23,7 +23,8 @@ import { runMission } from '../commercial/mission.ts';
 import { researchDemand } from '../tools/research.ts';
 import { seedProducts } from '../commercial/products.ts';
 import { generateLanding, generateAllLandings } from '../commercial/landing.ts';
-import { draftArticle } from '../commercial/publishing.ts';
+import { draftArticle, publishArticle } from '../commercial/publishing.ts';
+import { getControls } from '../security/controls.ts';
 import { answerInquiry } from '../commercial/inquiries.ts';
 import { deliverOrder } from '../commercial/delivery.ts';
 import { financialReport } from '../finance/report.ts';
@@ -491,7 +492,8 @@ function registerAll(): void {
       }
     }
     const { id, slug } = await draftArticle({ topic, productSlug });
-    return { articleId: id, slug, topic };
+    const publication = await publishDraftWithinOwnerScope(slug);
+    return { articleId: id, slug, topic, ...publication };
   });
 
   // --- inbound: answer a customer's own question from verified product data --
@@ -500,4 +502,16 @@ function registerAll(): void {
     if (!id) return { skipped: 'no inquiryId' };
     return await answerInquiry(id);
   });
+}
+
+/**
+ * A scheduled content task may publish only within the owner's explicit content
+ * permission. The publisher independently re-checks permission and Emergency
+ * Stop at the write edge, so this pre-check only chooses draft vs publish.
+ */
+export async function publishDraftWithinOwnerScope(slug: string): Promise<{ status: string; publicPath?: string; skipped?: string }> {
+  const controls = await getControls();
+  if (!controls.contentPublishingAllowed) return { status: 'DRAFT', skipped: 'owner content-publishing permission is off' };
+  const result = await publishArticle(slug, 'scheduled-content-agent');
+  return { status: result.status, publicPath: `/insights/${result.slug}` };
 }
