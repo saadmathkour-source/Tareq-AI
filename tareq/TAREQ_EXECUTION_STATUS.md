@@ -2,7 +2,7 @@
 
 **Project boundary:** repository `saadmathkour-source/Tareq-AI`; verified application root `tareq/` only.
 
-**Current phase:** Phase 3 — owner content and inquiry surfaces are on `main` via PR #12; production activation is not authorized.
+**Current phase:** Phase 3 — source offer and publishing QA repairs prepared on draft PR #13; production publishing remains owner-gated.
 
 **Last updated:** 2026-11-10 UTC.
 
@@ -15,6 +15,7 @@
 - Phase 2 frontend-to-backend audit: [`docs/PHASE2_FRONTEND_AUDIT.md`](docs/PHASE2_FRONTEND_AUDIT.md). Found that the live Insights page has no posts and the owner dashboard had no content controls despite backend routes.
 - Verified TAREQ root and default branch `main`. PR #10 (auth hardening), PR #11 (inquiry stop/retry), and PR #12 (content/inquiry dashboard) are merged; current `main` is `6e2fad798318928b5c441d582e81e0fc0fdaf181`.
 - PR #12 added bilingual owner surfaces to review sourced article drafts, explicitly confirm publishing, and inspect/answer inbound inquiries. Server permission, source QA, emergency-stop, outreach-permission and email-provider checks remain authoritative.
+- PR #13 now aligns the market-report offer with the JSON report actually delivered, makes declared report QA checks enforceable, and requires titled HTTPS source links before an article can publish. These changes are source/test evidence only.
 - Contact success copy now distinguishes recorded inquiry from delivered email; the contact page discloses stored fields and IP use for abuse prevention.
 - Capability runtime statuses now distinguish `VERIFIED_PRODUCTION`, `IMPLEMENTED_NOT_VERIFIED`, `PARTIAL`, `BACKEND_ONLY` and the other blueprint values. Current count remains 0 verified production, 19 implemented not verified, 9 partial, 72 backend-only. Historical source-only rows are not called production proof.
 - No database or production mutation in this task.
@@ -23,21 +24,22 @@
 
 - Historical production health at `2026-11-10T16:52:50.995Z`: HTTP 200; database, OpenAI, DeepSeek, and owner-config indicators true; deployed build SHA was `bca738c…` at that time.
 - A read-only `/health` request at `2026-11-10T18:31:32Z` returned HTTP 200 headers but no body before the 10-second client timeout. Current production build and integration health therefore remain unverified.
+- Latest read-only requests from this environment to `/health`, `/shop`, `/checkout/market-opportunity-report`, `/insights`, and `/contact` timed out without response bodies. This does not prove the service is down; the live product, articles and checkout are currently unverified.
 - Public `/shop`, `/buy/market-opportunity-report`, and `/contact` rendered in the earlier Phase 0 snapshot; `/insights` then had no published articles.
 - PR #11's latest-main source adds an inquiry delivery lease (`reply_claimed_at`) and retry handling. Production still needs the additive schema field and deployment before this behavior can be assumed live.
 - Full TAREQ suite: 299/299 passed against temporary local PostgreSQL on loopback; no production credentials were inherited. Focused dashboard/capability tests: 17/17. `npm run typecheck`, `npm run build`, embedded dashboard `node --check`, and `git diff --check` passed on the merged-current-main branch.
-- GitHub reports PR #12 merged at `2026-11-10T18:29:44Z`. Its merge was not performed by this work. Follow-up PR #13 is an open draft on `fix/tareq-post-merge-test-hardening`, based on current `main`, and limits its changes to four TAREQ files. No Actions runs/status checks are present for PR #13.
+- GitHub reports PR #12 merged at `2026-11-10T18:29:44Z`. Its merge was not performed by this work. Follow-up PR #13 is an open draft on `fix/tareq-post-merge-test-hardening`, based on current `main`, with nine changed files, all inside `tareq/`. The focused product QA (3/3) and acquisition publish QA (4/4) passed on isolated local PostgreSQL; `npm run typecheck`, `npm run build`, and `git diff --check` passed. The full suite was not rerun. No Actions runs/status checks are present for PR #13.
 
 ## Current blockers
 
-1. Production organic-content channel had no articles in the last verified snapshot. PR #12 is merged, but production deployment and current article state need re-verification before activation.
+1. No public article or live deployment is verified now. The application requires the owner to enable `contentPublishingAllowed`; do not publish until the control is explicitly granted.
 2. The owner inquiry surface can inspect and process new inquiries. Email delivery remains conditional on explicit permission plus a working provider. The source retry mechanism requires `reply_claimed_at` schema application and a deployment; live delivery is unverified.
 3. Current production build/DB health could not be confirmed from the latest read-only probe; Stripe webhook, worker/scheduler and email status remain unverified.
 4. No evidence of a real customer, live paid order, delivery, revenue or net profit. First-sale validation remains pending.
 
 ## Remaining
 
-- Review draft PR #13 for the Phase 18 API test update and post-merge status corrections.
+- Review draft PR #13 for the Phase 18 test repair, sales-copy correction, and fail-closed publication QA.
 - After PR review, request owner authorization for production content publishing or inquiry email only if needed. Do not deploy or change live permissions without approval.
 - Next after these owner surfaces: verify email delivery without sending customer mail, design safe retry for failed replies, then inspect sales/fulfillment evidence.
 - Apply the additive `reply_claimed_at` schema change only through the approved production database process; do not mutate production during this audit.
@@ -50,7 +52,7 @@
 
 ## Next single action
 
-Review draft PR #13. No merge or production deployment is authorized.
+Owner action needed before a public article can be published: grant the bounded `contentPublishingAllowed` permission in the TAREQ owner dashboard. No merge or production deployment is authorized.
 
 ## Complete TAREQ file listing
 - `.dockerignore`
