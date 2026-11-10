@@ -429,3 +429,55 @@ set `TAREQ_AUTH_BYPASS=0`; optionally `TAREQ_WORKER_CONCURRENCY=2..4`.
   (GitHub → Settings → Developer settings → Fine-grained tokens → Repository
   permissions → Contents), or push from a machine with a working credential.
   This is a scope issue, not a code issue.
+
+## 2026-11-10 FINAL MISSION — Phase A–E verification (verified against live prod)
+
+**Production is live and correct.** `https://tareq-ai-production.up.railway.app`
+serves TAREQ; `/health` returns `{"service":"tareq"}` with
+`build.commit == 7d4811ca` (exactly `main`), `database.ok:true`. Phase 18 is
+merged (PR #8 merged, `merge_commit 7d4811ca`; `main` == `7d4811ca`).
+`TAREQ_AUTH_BYPASS` is OFF in prod: unauth `/tasks` and `/capabilities` → 401.
+Owner login works (`/auth/login` with `TAREQ_OWNER_PASSWORD`). Prod controls:
+`publishingAllowed:false, outreachAllowed:false, emergencyStop:false,
+adSpendCapUsd:0, maxDiscountPct:0`. Prod `/finance` gross revenue **$0**
+(no fabricated revenue); 1 PUBLISHED product (`market-opportunity-report`, $149)
++ 2 DRAFT. `/readiness` shows 1/8 items verified.
+
+**Phase A findings:** all of C1, H1/H2, M2, M3, M4, M5, L2, L4 are implemented
+and pass (290/290 tests, `npx tsc --noEmit` clean). Only **M1 (CI workflow)** is
+blocked: the owner PAT lacks the GitHub `workflow` scope, so GitHub rejects any
+push containing `.github/workflows/ci.yml` (404 via Contents API, "refusing to
+allow a Personal Access Token to create or update workflow ... without
+`workflow` scope" on push). The workflow file exists locally at
+`.github/workflows/ci.yml` and is correct; add the `workflow` scope and re-push.
+
+**Real defect found & fixed (PR #9, branch `fix/phase18-handler-guard`):**
+production had 76 DEAD `supervisor.watchdog` tasks ("No handler for kind:
+supervisor.watchdog") between ~2026-11-09 and 2026-11-10T12:10Z. Cause: the
+`supervisor.watchdog` schedule row was seeded into the **shared** DB by a local
+run, then fired by the **old** production build (which had the schedule but not
+the handler). It self-healed at 12:20 after the Phase 18 deploy. The guard test
+only checked 2 of 6 scheduler kinds; PR #9 derives it from `DEFAULT_SCHEDULES`.
+
+**Commercial reality (Phase C/E) — the binding constraint:**
+- Authorized channels: Gmail (`voiceproxyaiillc@gmail.com`, send gated by
+  `outreach.send` approval + `assertOutreachAllowed`), Stripe **LIVE** checkout +
+  signature-verified webhook, Telegram (unconfigured), HubSpot (unconfigured).
+- Free research sources: HN Algolia (`hn.algolia.com/api/v1/search`) and
+  Wikipedia REST — no key, no cost. Real demand evidence exists (e.g. 200 HN
+  stories / 2 622 comments for "competitive intelligence").
+- **The 100 production leads are HN pseudonymous handles with NO email** —
+  `discoverBuyersFromHN` deliberately records no email (`lawfulBasis:
+  'public_discussion'`). So there is **no lawful, authorized channel** to contact
+  them. `outreachAllowed` is false and each send needs owner approval anyway.
+  → Customer acquisition cannot proceed without an owner-approved channel
+  (opt-in list, or a public Gmail/Telegram/social presence the owner authorizes).
+- Model provider: OpenAI `gpt-4o-mini` is funded (minimal probe OK, sub-cent).
+- Costs already incurred by the owner (not new spend): Railway hosting +
+  Supabase Postgres + model tokens. Zero-additional-budget is satisfied; no paid
+  ad, subscription or lead-gen was used.
+
+**Honest status: TECHNICALLY READY — COMMERCIAL VALIDATION PENDING.** The engine
+can discover, draft, publish (gated), check out (LIVE) and deliver; it cannot
+legitimately reach a customer yet, so no sale is possible without an owner
+decision. Do NOT report revenue: prod gross is $0 and no order exists.
