@@ -116,6 +116,7 @@ async function composeAnswer(inquiry: { productSlug: string | null; message: str
 export async function answerInquiry(id: string): Promise<{ answered: boolean; sent: boolean; reason?: string }> {
   const inquiry = await prisma.inquiry.findUnique({ where: { id } });
   if (!inquiry) throw new ValidationError('inquiry not found');
+  await assertNotStopped();
   if (inquiry.status === 'CLOSED' || inquiry.replySentAt) {
     return { answered: Boolean(inquiry.answer), sent: false, reason: 'already handled' };
   }
@@ -143,12 +144,30 @@ export async function answerInquiry(id: string): Promise<{ answered: boolean; se
   // /contact. Enforce the global stop at the actual external side-effect edge.
   await assertNotStopped();
 
+  // A short lease prevents parallel workers from sending the same reply. A
+  // crashed process releases itself after ten minutes; failed sends release
+  // immediately. The timestamp is also the lease token for safe cleanup.
+  const lease = new Date();
+  const claimed = await prisma.inquiry.updateMany({
+    where: {
+      id,
+      replySentAt: null,
+      OR: [{ replyClaimedAt: null }, { replyClaimedAt: { lt: new Date(lease.getTime() - 10 * 60_000) } }],
+    },
+    data: { replyClaimedAt: lease },
+  });
+  if (claimed.count === 0) return { answered: true, sent: false, reason: 'reply is already sent or being delivered' };
+
   const outcome = await email.send({ to: inquiry.email, subject: 'Your question about our research service', text: answer });
   if (outcome.sent) {
-    await prisma.inquiry.update({ where: { id }, data: { replySentAt: new Date() } });
+    await prisma.inquiry.updateMany({
+      where: { id, replyClaimedAt: lease, replySentAt: null },
+      data: { replySentAt: new Date(), replyClaimedAt: null },
+    });
     await audit({ actorType: 'system', action: 'inquiry.reply_sent', target: id, severity: 'warn' });
     return { answered: true, sent: true };
   }
+  await prisma.inquiry.updateMany({ where: { id, replyClaimedAt: lease }, data: { replyClaimedAt: null } });
   logger.warn('inquiry reply send failed', { id, reason: outcome.reason });
   return { answered: true, sent: false, reason: outcome.reason ?? 'send failed' };
 }
