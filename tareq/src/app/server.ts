@@ -54,71 +54,6 @@ import { shopHtml, thanksHtml, legalHtml, notFoundHtml, buyHtml, downloadHtml, i
 const PORT = Number(process.env.PORT ?? 3300);
 
 /**
- * Emergency owner-auth bypass.
- *
- * Set `TAREQ_AUTH_BYPASS=1` to drop the sign-in screen and treat every
- * owner-only route as already owned. It exists ONLY as a temporary lockout
- * recovery switch: it removes the last barrier between a public URL and owner
- * powers (spending, outreach, publishing), so it is logged loudly at startup
- * and MUST be switched off as soon as access is restored. Default: off.
- *
- * `bypassRequested` is the raw environment flag. `authBypass()` is the flag
- * *after* the safety gate: even when the flag is set, the bypass is refused
- * once an owner account exists, because the owner can sign in normally — a
- * forgotten `TAREQ_AUTH_BYPASS=1` must never leave a live deployment open.
- */
-function bypassRequested(): boolean {
-  return process.env.TAREQ_AUTH_BYPASS === '1';
-}
-
-let bypassAllowed = false;
-
-function authBypass(): boolean {
-  return bypassRequested() && bypassAllowed;
-}
-
-/**
- * Decide whether the bypass may take effect. It is permitted ONLY when no owner
- * exists (genuine lockout recovery); otherwise it is force-disabled and warned
- * about loudly. `countOwners` is injectable so the decision is unit-testable
- * without touching the database.
- */
-export async function resolveAuthBypass(countOwners: () => Promise<number> = () => prisma.owner.count()): Promise<void> {
-  if (!bypassRequested()) {
-    logger.info('owner auth bypass off');
-    return;
-  }
-  try {
-    const owners = await countOwners();
-    if (owners > 0) {
-      bypassAllowed = false;
-      logger.error(
-        'OWNER AUTH BYPASS REFUSED: TAREQ_AUTH_BYPASS=1 is set but an owner already exists. ' +
-          'Enforcing normal sign-in. Set TAREQ_AUTH_BYPASS=0 in production.',
-        { owners },
-      );
-      return;
-    }
-  } catch (err) {
-    // Fail closed: if we cannot confirm there is no owner, do not open the app.
-    bypassAllowed = false;
-    logger.error('OWNER AUTH BYPASS REFUSED: could not verify owner state; failing closed', {
-      error: (err as Error).message,
-    });
-    return;
-  }
-  bypassAllowed = true;
-  logger.warn('OWNER AUTH BYPASS ENABLED (no owner exists): every owner-only route is open for lockout recovery. Create the owner and set TAREQ_AUTH_BYPASS=0.');
-}
-
-const BYPASS_OWNER: OwnerIdentity = {
-  id: 'auth-bypass',
-  email: process.env.TAREQ_OWNER_EMAIL ?? 'owner',
-  displayName: 'Auth bypass (owner lockout recovery)',
-  locale: 'ar',
-};
-
-/**
  * The dashboard is a single static HTML file served by this same server, so the
  * owner UI has no separate build step and no second deployment. It is public
  * HTML (no data), and every datum it shows comes from an authenticated API call.
@@ -748,13 +683,16 @@ route('GET', '/orders/artifact', true, async (req, res) => {
 });
 
 const server = createServer(async (req, res) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('Cache-Control', 'no-store');
   try {
     const url = new URL(req.url ?? '/', `http://localhost:${PORT}`);
 
     // Owner dashboard (static shell; data comes from authenticated API calls).
     if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/dashboard')) {
-      let html = dashboard();
-      if (authBypass()) html = html.replace('<body>', '<body data-auth-bypass="1">');
+      const html = dashboard();
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'content-length': Buffer.byteLength(html) });
       res.end(html);
       return;
@@ -957,21 +895,17 @@ const server = createServer(async (req, res) => {
 
     let owner: OwnerIdentity | null = null;
     if (match.auth) {
-      if (authBypass()) {
-        owner = BYPASS_OWNER;
-      } else {
-        try {
-          owner = await authenticate(bearer(req));
-        } catch {
-          return json(res, 401, { error: 'unauthorized' });
-        }
+      try {
+        owner = await authenticate(bearer(req));
+      } catch {
+        return json(res, 401, { error: 'unauthorized' });
       }
     }
     // M5: for a mutating request, re-check the session is still live immediately
     // before the handler runs, so a session revoked (or an emergency stop engaged)
     // mid-request cannot still land its write. This closes the window between the
     // auth check above and the mutation below.
-    if (match.auth && req.method === 'POST' && !authBypass()) {
+    if (match.auth && req.method === 'POST') {
       try {
         await assertSessionLive(bearer(req));
       } catch {
@@ -1023,8 +957,7 @@ async function startEmbeddedWorker(): Promise<void> {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   env();
-  await resolveAuthBypass();
-  server.listen(PORT, () => logger.info('tareq api listening', { port: PORT, authBypass: authBypass() }));
+  server.listen(PORT, () => logger.info('tareq api listening', { port: PORT }));
   if (embeddedWorkerEnabled()) void startEmbeddedWorker();
 }
 
