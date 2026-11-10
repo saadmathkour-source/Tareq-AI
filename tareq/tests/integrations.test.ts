@@ -12,6 +12,7 @@ import {
   createDeal as hsCreateDeal,
   deleteObject as hsDeleteObject,
   findContactByEmail as hsFindByEmail,
+  verifyConnection as hsVerifyConnection,
 } from '../src/lib/integrations/hubspot.ts';
 import { status as stripeStatus, handleWebhook, createTestPaymentLink, classifyStripeEvent } from '../src/lib/integrations/stripe.ts';
 
@@ -58,6 +59,32 @@ test('hubspot reads a legacy access-token environment alias without exposing it'
     assert.equal(status.missing.length, 0);
     assert.equal(JSON.stringify(status).includes('TEST_ONLY_HUBSPOT_TOKEN'), false);
   } finally { process.env = saved; }
+});
+
+test('HubSpot read-only connection probe distinguishes accepted token and denied token', async () => {
+  const prev = { ...process.env };
+  const oldFetch = globalThis.fetch;
+  try {
+    delete process.env.HUBSPOT_PRIVATE_APP_TOKEN;
+    process.env.HUBSPOT_ACCESS_TOKEN = 'ci-only-token';
+    let calls = 0;
+    globalThis.fetch = async (_input, init) => {
+      calls++;
+      assert.match(String(_input), /crm\/v3\/objects\/contacts\?limit=1/);
+      assert.equal(init?.method, undefined, 'probe must use GET, never mutate');
+      assert.equal((init?.headers as Record<string,string>).authorization, 'Bearer ci-only-token');
+      return new Response('{}', { status: calls === 1 ? 200 : 403 });
+    };
+    const ok = await hsVerifyConnection();
+    const denied = await hsVerifyConnection();
+    assert.equal(ok.connectionVerified, true);
+    assert.equal(denied.connectionVerified, false);
+    assert.equal(denied.failureCode, 'missing_scope');
+    assert.equal(JSON.stringify(denied).includes('ci-only-token'), false);
+  } finally {
+    globalThis.fetch = oldFetch;
+    process.env = prev;
+  }
 });
 
 test('stripe mode is derived from the key prefix', () => {
