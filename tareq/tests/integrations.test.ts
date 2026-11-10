@@ -48,6 +48,18 @@ test('hubspot reports unconfigured without a token', () => {
   process.env = saved;
 });
 
+test('hubspot reads a legacy access-token environment alias without exposing it', () => {
+  const saved = { ...process.env };
+  try {
+    delete process.env.HUBSPOT_PRIVATE_APP_TOKEN;
+    process.env.HUBSPOT_ACCESS_TOKEN = 'TEST_ONLY_HUBSPOT_TOKEN';
+    const status = hubspotStatus();
+    assert.equal(status.configured, true);
+    assert.equal(status.missing.length, 0);
+    assert.equal(JSON.stringify(status).includes('TEST_ONLY_HUBSPOT_TOKEN'), false);
+  } finally { process.env = saved; }
+});
+
 test('stripe mode is derived from the key prefix', () => {
   const saved = { ...process.env };
   delete process.env.STRIPE_SECRET_KEY;
