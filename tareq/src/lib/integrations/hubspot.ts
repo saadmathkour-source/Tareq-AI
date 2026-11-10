@@ -34,6 +34,33 @@ export function status(): HubSpotStatus {
 
 const BASE = 'https://api.hubapi.com';
 
+/** Read-only token and CRM-scope probe; never creates a CRM record. */
+export async function verifyConnection(): Promise<{
+  configured: boolean; connectionVerified: boolean; httpStatus?: number;
+  failureCode?: 'missing_config' | 'unauthorized' | 'missing_scope' | 'rate_limited' | 'provider_error' | 'network_error';
+}> {
+  if (!status().configured) return { configured: false, connectionVerified: false, failureCode: 'missing_config' };
+  try {
+    const response = await fetch(BASE + '/crm/v3/objects/contacts?limit=1', {
+      headers: { authorization: 'Bearer ' + configuredToken()! },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (response.ok) return { configured: true, connectionVerified: true, httpStatus: response.status };
+    return {
+      configured: true,
+      connectionVerified: false,
+      httpStatus: response.status,
+      failureCode: response.status === 401 ? 'unauthorized'
+        : response.status === 403 ? 'missing_scope'
+        : response.status === 429 ? 'rate_limited' : 'provider_error',
+    };
+  } catch {
+    // No upstream description, token or arbitrary exception is persisted.
+    return { configured: true, connectionVerified: false, failureCode: 'network_error' };
+  }
+}
+
+
 export interface UpsertResult {
   ok: boolean;
   contactId?: string;
