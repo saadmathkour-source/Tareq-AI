@@ -411,7 +411,7 @@ async function evaluateCapability(ev) {
     button.disabled = false;
   }
 }
-document.getElementById('capEvaluateForm').addEventListener('submit', evaluateCapability);
+document.getElementById('capEvaluateForm').onsubmit = evaluateCapability;
 
 function applyLang() {
   document.documentElement.lang = lang;
