@@ -12,6 +12,8 @@ import { dirname, join } from 'node:path';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const html = readFileSync(join(HERE, '..', 'src', 'app', 'dashboard.html'), 'utf8');
+const storefront = readFileSync(join(HERE, '..', 'src', 'app', 'storefront.ts'), 'utf8');
+const server = readFileSync(join(HERE, '..', 'src', 'app', 'server.ts'), 'utf8');
 
 test('dashboard supports Arabic and English', () => {
   assert.match(html, /T\.en\s*=/, 'English strings table present');
@@ -28,9 +30,25 @@ test('dashboard fetches data from the authenticated API, not hardcoded values', 
 });
 
 test('dashboard covers the full operational surface', () => {
-  for (const ep of ['/tasks', '/approvals', '/mode', '/leads', '/usage', '/errors', '/config', '/research', '/health', '/supervisor', '/controls', '/optimization', '/readiness', '/content']) {
+  for (const ep of ['/tasks', '/approvals', '/mode', '/leads', '/usage', '/errors', '/config', '/research', '/health', '/supervisor', '/controls', '/optimization', '/readiness', '/content', '/inquiries']) {
     assert.ok(html.includes(ep), `dashboard references ${ep}`);
   }
+});
+
+test('dashboard exposes owner-only inquiry review and accurately labels conditional email delivery', () => {
+  assert.match(html, /api\('\/inquiries'\)/, 'loads the owner inquiry endpoint');
+  assert.match(html, /data-answer-inquiry=/, 'offers processing only for new inquiries');
+  assert.match(html, /api\('\/inquiries\/answer'/, 'uses the protected answer endpoint');
+  assert.match(html, /esc\(inquiry\.message\)/, 'escapes customer-submitted text');
+  assert.match(html, /esc\(inquiry\.answer\)/, 'escapes generated answers');
+  assert.match(html, /confirm\(t\('confirmAnswerInquiry'\)\)/, 'explains a permitted response may send email and asks before processing');
+  assert.match(html, /when owner permission and a configured provider both allow it/i);
+});
+
+test('contact page discloses stored inquiry fields and truthful conditional reply behavior', () => {
+  assert.match(storefront, /retain your IP address for abuse prevention/i);
+  assert.match(storefront, /You can ask us to delete this inquiry/i);
+  assert.match(server, /email answer is sent only when owner permission and a working email provider are enabled/i);
 });
 
 test('dashboard exposes owner-gated organic content draft and publish actions', () => {
