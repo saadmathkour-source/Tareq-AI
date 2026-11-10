@@ -2,7 +2,7 @@ import { prisma } from '../core/db.ts';
 import { audit } from '../core/audit.ts';
 import { logger } from '../core/logger.ts';
 import { ValidationError } from '../core/errors.ts';
-import { getControls } from '../security/controls.ts';
+import { assertNotStopped, getControls } from '../security/controls.ts';
 import * as email from '../integrations/email.ts';
 
 /**
@@ -116,17 +116,32 @@ async function composeAnswer(inquiry: { productSlug: string | null; message: str
 export async function answerInquiry(id: string): Promise<{ answered: boolean; sent: boolean; reason?: string }> {
   const inquiry = await prisma.inquiry.findUnique({ where: { id } });
   if (!inquiry) throw new ValidationError('inquiry not found');
-  if (inquiry.status !== 'NEW') return { answered: false, sent: false, reason: 'already handled' };
+  if (inquiry.status === 'CLOSED' || inquiry.replySentAt) {
+    return { answered: Boolean(inquiry.answer), sent: false, reason: 'already handled' };
+  }
 
-  const answer = await composeAnswer(inquiry);
-  await prisma.inquiry.update({ where: { id }, data: { status: 'ANSWERED', answer, answeredAt: new Date() } });
-  await audit({ actorType: 'agent', action: 'inquiry.answered', target: id });
+  // Persist the answer before attempting delivery. If delivery is disabled or
+  // fails, a later retry reuses this exact answer instead of losing the reply.
+  let answer = inquiry.answer;
+  if (!answer) {
+    if (inquiry.status !== 'NEW') return { answered: false, sent: false, reason: 'no stored answer to retry' };
+    answer = await composeAnswer(inquiry);
+    await prisma.inquiry.update({
+      where: { id },
+      data: { status: 'ANSWERED', answer, answeredAt: new Date() },
+    });
+    await audit({ actorType: 'agent', action: 'inquiry.answered', target: id });
+  }
 
   // Transmit only with explicit owner permission to email people. The person
   // submitted the form, so this is a requested reply, not outreach.
   const controls = await getControls().catch(() => null);
   if (!controls?.outreachAllowed) return { answered: true, sent: false, reason: 'reply stored; email permission not granted' };
   if (!email.status().configured) return { answered: true, sent: false, reason: 'reply stored; email not configured' };
+
+  // This function is called both by the worker and directly by public POST
+  // /contact. Enforce the global stop at the actual external side-effect edge.
+  await assertNotStopped();
 
   const outcome = await email.send({ to: inquiry.email, subject: 'Your question about our research service', text: answer });
   if (outcome.sent) {
