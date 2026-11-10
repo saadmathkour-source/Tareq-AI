@@ -237,6 +237,27 @@ test('a repeat checkout within the window reuses the same order (no duplicate)',
   globalThis.fetch = realFetch;
 });
 
+test('a new topic for the same email receives its own order and checkout session', async () => {
+  stubStripe(); // no external Stripe call
+  const email = `${MARK}.scope@example.com`;
+  const first = await createPublicCheckout({
+    slug: 'market-opportunity-report', email, requirements: { topic: 'medical practices' },
+    baseUrl: 'https://example.test',
+  });
+  orderIds.push(first.orderId);
+  const second = await createPublicCheckout({
+    slug: 'market-opportunity-report', email, requirements: { topic: 'small retailers' },
+    baseUrl: 'https://example.test',
+  });
+  orderIds.push(second.orderId);
+  assert.notEqual(second.orderId, first.orderId, 'distinct scope must not inherit earlier checkout');
+  assert.equal(second.reused, false);
+  const rows = await prisma.order.findMany({ where: { id: { in: [first.orderId, second.orderId] } } });
+  assert.equal(rows.length, 2);
+  const topics = rows.map((row) => (row.requirements as { topic: string }).topic).sort();
+  assert.deepEqual(topics, ['medical practices', 'small retailers']);
+});
+
 // --- webhook recognition ----------------------------------------------------
 
 test('a valid signed LIVE webhook activates the order', async () => {
