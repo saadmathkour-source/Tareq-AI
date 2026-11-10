@@ -24,6 +24,11 @@ jobs:
           node-version: '22'
           cache: npm
           cache-dependency-path: tareq/package-lock.json
+      - name: Resolve security override for review
+        shell: bash
+        run: |
+          npm install --package-lock-only --ignore-scripts
+          git diff -- package-lock.json
       - name: Install dependencies
         run: npm ci
       - name: Dependency audit report (advisory names only)
